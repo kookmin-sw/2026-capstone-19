@@ -251,14 +251,17 @@ class TripJoinView(APIView):
             return Response({'message': f'참여 처리 중 오류가 발생했습니다: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MyTripListView(APIView):
-    """내가 방장이거나, 멤버로 참여 중인 모든 동승 내역 조회"""
+    """내가 방장이거나 멤버로 참여 중인 모든 동승 내역 조회"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 현재 로그인한 유저가 'JOINED' 상태로 포함된 모든 트립
+        # 현재 로그인한 유저가 JOINED 상태이고,
+        # 연결된 채팅방이 실제로 존재하며 아카이브되지 않은 트립만 이용중으로 반환
         trips = Trip.objects.filter(
             trip_participants__user=request.user,
-            trip_participants__status=TripParticipant.StatusChoices.JOINED
+            trip_participants__status=TripParticipant.StatusChoices.JOINED,
+            chat_room__isnull=False,
+            chat_room__is_archived=False,
         ).distinct().order_by('-depart_time')
 
         serializer = TripSerializer(trips, many=True, context={'request': request})
