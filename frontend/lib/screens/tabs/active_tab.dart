@@ -14,6 +14,7 @@ import '../../service/notification_service.dart';
 import 'dart:async'; // StreamSubscription 사용을 위해 추가
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
+import '../../config/app_config.dart';
 
 // ============================================================
 // 열거형 & 모델
@@ -120,7 +121,7 @@ class ActiveRidePin {
      _stopListener(); // 중복 연결 방지
 
      // Django Channels 주소 (본인의 서버 설정에 맞게 수정)
-     final wsUrl = 'ws://10.0.2.2:8000/ws/trip/$tripId/';
+     final wsUrl = '${AppConfig.wsBaseUrl}/ws/trip/$tripId/';
 
      try {
        _channel = WebSocketChannel.connect(Uri.parse(wsUrl)); // 변경된 패키지 적용

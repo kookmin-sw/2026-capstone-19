@@ -518,6 +518,13 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _pushAlarm = true;
 
+  static const String _privacyPolicyUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980dd9ecde56f7e673f85?source=copy_link';
+  static const String _termsOfServiceUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980b28d71eb4b600379a1?source=copy_link';
+  static const String _locationTermsUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980e18e2cdd792512842f?source=copy_link';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -533,8 +540,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             (v) => setState(() => _pushAlarm = v),
           ),
           _sectionTitle('📄 약관 및 정책'),
-          _navTile('개인정보 처리방침', null, () {}),
-          _navTile('위치기반 서비스 약관', null, () {}),
+          _navTile(
+            '개인정보 처리방침',
+            null,
+            () => _openPolicyUrl(_privacyPolicyUrl),
+          ),
+          _navTile(
+            '서비스 이용약관',
+            null,
+            () => _openPolicyUrl(_termsOfServiceUrl),
+          ),
+          _navTile(
+            '위치기반 서비스 약관',
+            null,
+            () => _openPolicyUrl(_locationTermsUrl),
+          ),
           _navTile(
             '오픈 소스 라이선스',
             null,
@@ -544,7 +564,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               applicationVersion: '1.0.0',
             ),
           ),
-          _navTile('서비스 이용약관', null, () {}),
           _navTile('버전 정보', '1.0.0', () {}),
           _sectionTitle('👤 계정'),
           _navTile(
@@ -559,6 +578,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  Future<void> _openPolicyUrl(String url) async {
+    final uri = Uri.parse(url);
+
+    try {
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!mounted) return;
+
+      if (!opened) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('약관 페이지를 열 수 없습니다.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('약관 페이지를 여는 중 오류가 발생했습니다.')),
+      );
+    }
+  }
+
 
   Widget _sectionTitle(String t) => Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 8), child: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.gray)));
   Widget _switchTile(String label, String sub, bool value, ValueChanged<bool> onChanged) => Padding(
