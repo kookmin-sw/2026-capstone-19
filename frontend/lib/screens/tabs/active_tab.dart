@@ -144,13 +144,31 @@ class ActiveRidePin {
      _channel = null;
    }
 
+    void clearLocalState() {
+      _stopListener();
+      NotificationService.cancelOngoingRide();
+      _waitingPins = [];
+      _myPins = [];
+      _isLoading = false;
+    }
+
    // 📍 데이터 로드 및 리스너 자동 연결
   Future<void> fetchActiveRides() async {
+    if (_isDisposed) return;
+
+    final token = AuthSession.token ?? '';
+
+    if (token.isEmpty) {
+      clearLocalState();
+      notifyListeners();
+      return;
+    }
+
     _isLoading = true;
     notifyListeners();
     try {
-      final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
-      if (_isDisposed) return;
+      final data = await TripService.getMyTrips(token: token);
+      if (_isDisposed || token != (AuthSession.token ?? '')) return;
       final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
 
       final activePins = allPins
@@ -183,11 +201,11 @@ class ActiveRidePin {
      } catch (e) {
        debugPrint('이용 중 데이터 로드 실패: $e');
      } finally {
-       if (!_isDisposed) {
-         _isLoading = false;
-         notifyListeners();
-       }
-     }
+       if (!_isDisposed && token == (AuthSession.token ?? '')) {
+          _isLoading = false;
+          notifyListeners();
+        }
+      }
    }
 
    // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
@@ -995,8 +1013,14 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _tabCtrl.addListener(() => setState(() => _selectedCardId = null));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _state.fetchActiveRides());
+    _tabCtrl.addListener(() {
+      if (!mounted) return;
+      setState(() => _selectedCardId = null);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _state.fetchActiveRides();
+    });
     TripService.tripsRefreshNotifier.addListener(_state.fetchActiveRides);
   }
 
@@ -1004,7 +1028,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
-    _state.dispose();
+    _state.clearLocalState();
     super.dispose();
   }
 
