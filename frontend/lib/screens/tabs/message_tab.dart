@@ -676,6 +676,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ? 'settlement_$settlementId'
               : 'settlement_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}';
 
+          for (int i = 0; i < _messages.length; i++) {
+            final oldSettlement = _messages[i].settlement;
+
+            if (_messages[i].isSettlement &&
+                oldSettlement != null &&
+                _messages[i].id != messageId) {
+              final canceledSettlement = SettlementMessage(
+                settlementId: oldSettlement.settlementId,
+                totalAmount: oldSettlement.totalAmount,
+                shareAmount: oldSettlement.shareAmount,
+                receiptImageUrl: oldSettlement.receiptImageUrl,
+                paymentLink: oldSettlement.paymentLink,
+                status: 'CANCELED',
+              );
+
+              _messages[i] = _Message(
+                id: _messages[i].id,
+                text: '취소된 정산 정보입니다.',
+                time: _messages[i].time,
+                userId: _messages[i].userId,
+                isMe: _messages[i].isMe,
+                isLink: _messages[i].isLink,
+                isSettlement: true,
+                isSystem: _messages[i].isSystem,
+                settlement: canceledSettlement,
+                imageFile: _messages[i].imageFile,
+                imageUrl: _messages[i].imageUrl,
+              );
+            }
+          }
+
           _messages.removeWhere(
             (message) => message.isSettlement && message.id == messageId,
           );

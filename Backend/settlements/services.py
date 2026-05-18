@@ -318,6 +318,9 @@ def analyze_receipt_ocr(*, receipt: Receipt, actor):
 def create_receipt(*, trip, user, validated_data):
     _validate_trip_leader(trip=trip, user=user)
 
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭은 영수증을 다시 등록할 수 없습니다.")
+
     reset_existing = validated_data.pop("reset_existing", False)
     existing_receipt = getattr(trip, "receipt", None)
 
@@ -416,6 +419,9 @@ def confirm_receipt_amount(*, receipt: Receipt, actor, total_amount: int):
 def create_settlements_for_receipt(*, receipt: Receipt, actor):
     trip = receipt.trip
     _validate_trip_leader(trip=trip, user=actor)
+
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭은 정산 요청을 다시 생성할 수 없습니다.")
 
     if receipt.total_amount is None:
         raise ValidationError("최종 결제 금액이 확정되지 않았습니다.")
@@ -559,11 +565,11 @@ def dispute_settlement(*, settlement: Settlement, user):
 def complete_trip_settlement(*, trip, user):
     """
     리더가 해당 trip의 정산을 최종 완료 처리한다.
-    - 모든 정산 요청을 CONFIRMED로 변경
-    - 채팅방 공지 문구를 정산 완료 문구로 변경
-    - 채팅방 만료 시간을 현재 시각 + 1시간으로 설정
     """
     _validate_trip_leader(trip=trip, user=user)
+
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭입니다.")
 
     settlements = list(
         Settlement.objects.filter(
