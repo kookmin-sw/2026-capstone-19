@@ -52,19 +52,23 @@ class ActiveRidePin {
     this.pinPhase = PinPhase.open,
   });
 
-  // 📍 서버 연동: JSON 데이터를 모델로 변환
+// 📍 서버 연동: JSON 데이터를 모델로 변환
   factory ActiveRidePin.fromJson(Map<String, dynamic> json) {
     final parsedTime = DateTime.parse(json['depart_time']).toLocal();
+    final hostId = (json['host_nickname'] ?? '익명').toString();
+
+    // DB의 방장 닉네임과 내 닉네임이 같으면 무조건 내가 만든 핀으로 처리!
+    final isMyPin = json['is_mine'] == true || hostId == (AuthSession.username ?? '');
 
     return ActiveRidePin(
       id: json['id'],
-      hostId: json['host_nickname'] ?? '익명',
+      hostId: hostId,
       dept: json['depart_name'],
       dest: json['arrive_name'],
       departTime: parsedTime,
       max: json['capacity'],
       cur: json['current_count'],
-      isMine: json['is_mine'] ?? false,
+      isMine: isMyPin, // 👈 보강된 필터링 로직 적용
       kakaoPayLink: json['kakaopay_link'],
       phase: _mapStatusToPhase(json['status']),
       pinPhase: _mapStatusToPinPhase(json['status']),
@@ -1201,7 +1205,33 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildHeader() => Container(decoration: const BoxDecoration(color: Colors.white), padding: const EdgeInsets.fromLTRB(20, 16, 20, 10), child: const Align(alignment: Alignment.centerLeft, child: Text('이용 중', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.secondary))));
+  Widget _buildHeader() => Container(
+      decoration: const BoxDecoration(color: Colors.white),
+      padding: const EdgeInsets.fromLTRB(20, 10, 10, 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            '이용 중',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.secondary)
+          ),
+          // 🔄 새로고침 버튼 추가
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.gray),
+            onPressed: () {
+              _state.fetchActiveRides();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('최신 상태로 새로고침 되었습니다.'),
+                  duration: Duration(seconds: 1),
+                  backgroundColor: AppColors.primary,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
 
   Widget _buildTabBar() => Container(
     color: Colors.white,
