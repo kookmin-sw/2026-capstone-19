@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+
+# Django / local env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+node_modules/
+db.sqlite3
+serviceAccountKey.json
