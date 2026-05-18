@@ -581,7 +581,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/?token=$token');
     _channel = WebSocketChannel.connect(wsUrl);
 
-    _channel!.stream.listen((data) {
+    // 🚨 바로 이 줄입니다! data 뒤에 아무것도 없습니다.
+    _channel!.stream.listen((data) async {
       final decodedRaw = jsonDecode(data);
 
       if (decodedRaw is! Map) {

@@ -303,11 +303,15 @@ class _HomeTabState extends State<HomeTab> {
     return markers;
   }
 
-  // ── 마커 강제 새로고침 (컨트롤러 통해 수동 갱신) ──────────────────────
+// ── 마커 강제 새로고침 ──────────────────────
   Future<void> _refreshMapMarkers() async {
     if (_mapController == null) return;
-    await _mapController!.clear();
-    _mapController!.addMarker(markers: _getMapMarkers());
+    try {
+      await _mapController!.clear(); // 1. 기존 마커 싹 지우기
+      _mapController!.addMarker(markers: _getMapMarkers()); // 2. 최신 데이터로 다시 그리기
+    } catch (e) {
+      debugPrint('마커 갱신 에러: $e'); // 에러가 나도 앱이 하얗게 뻗지 않음
+    }
   }
 
   // ── 마커 클릭 핸들러 ──

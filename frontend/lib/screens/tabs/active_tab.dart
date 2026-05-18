@@ -126,13 +126,7 @@ class ActiveRidePin {
       if (allRides.isEmpty) return null;
       return allRides.first;
     }
-   ActiveRidePin? get activeRide {
-     final allRides = [..._myPins, ..._waitingPins]
-       .where((p) => p.phase != RidePhase.completed).toList()
-       ..sort((a, b) => a.departTime.compareTo(b.departTime));
-     if (allRides.isEmpty) return null;
-     return allRides.first;
-   }
+
 
    // 🆕 1. 실시간 리스너 시작
    void initRealTimeListener(int tripId) {
