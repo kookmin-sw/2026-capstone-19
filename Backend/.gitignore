@@ -10,8 +10,7 @@ __pycache__/
 .env.test.local
 .env.production.local
 
-# keep example env
-!.env.example
+
 
 # OS / editor
 .DS_Store
@@ -20,3 +19,4 @@ __pycache__/
 
 node_modules/
 db.sqlite3
+serviceAccountKey.json

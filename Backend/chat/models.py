@@ -25,6 +25,11 @@ class ChatRoom(models.Model):
 
 
 class ChatMessage(models.Model):
+    class MessageTypeChoices(models.TextChoices):
+        TEXT = "TEXT", "TEXT"
+        IMAGE = "IMAGE", "IMAGE"
+        SYSTEM = "SYSTEM", "SYSTEM"
+
     room = models.ForeignKey(
         ChatRoom,
         on_delete=models.CASCADE,
@@ -35,8 +40,17 @@ class ChatMessage(models.Model):
         on_delete=models.CASCADE,
         related_name="chat_messages_sent",
     )
-    message = models.TextField()
+    message = models.TextField(blank=True, default="")
+    message_type = models.CharField(
+        max_length=20,
+        choices=MessageTypeChoices.choices,
+        default=MessageTypeChoices.TEXT,
+    )
+    image = models.ImageField(
+        upload_to="chat/images/%Y/%m/%d/",
+        blank=True,
+        null=True,
+    )
     sent_at = models.DateTimeField(auto_now_add=True)
-
     def __str__(self):
         return f"Message {self.id} in Room {self.room_id}"

@@ -10,6 +10,7 @@ class UserAdmin(BaseUserAdmin):
         "id",
         "username",
         "nickname",
+        "user_real_name",
         "phone_number",
         "gender",
         "trust_score",
@@ -33,6 +34,7 @@ class UserAdmin(BaseUserAdmin):
     search_fields = (
         "username",
         "nickname",
+        "user_real_name",
         "phone_number",
     )
 
@@ -43,7 +45,7 @@ class UserAdmin(BaseUserAdmin):
             "fields": ("username", "password")
         }),
         ("기본 정보", {
-            "fields": ("nickname", "phone_number", "gender", "profile_img_url")
+            "fields": ("user_real_name", "nickname", "phone_number", "gender", "profile_img_url")
         }),
         ("신뢰/패널티 정보", {
             "fields": (
@@ -94,6 +96,7 @@ class UserAdmin(BaseUserAdmin):
                 "fields": (
                     "username",
                     "nickname",
+                    "user_real_name",
                     "phone_number",
                     "gender",
                     "password1",

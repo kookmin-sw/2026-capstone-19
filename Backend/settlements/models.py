@@ -7,11 +7,24 @@ from trips.models import Trip
 
 
 class PaymentChannel(models.Model):
+    PROVIDER_CHOICES = [
+        ("KAKAOPAY", "KAKAOPAY"),
+        ("TOSS", "TOSS"),
+        ("OTHER", "OTHER"),
+    ]
+    
     trip = models.OneToOneField(
         Trip,
         on_delete=models.CASCADE,
         related_name="payment_channel",
     )
+    
+    provider = models.CharField(
+        max_length=20,
+        choices=PROVIDER_CHOICES,
+        default="KAKAOPAY",
+    )
+    
     kakaopay_link = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -29,6 +42,12 @@ class Receipt(models.Model):
         ("PENDING", "PENDING"),
         ("CONFIRMED", "CONFIRMED"),
     ]
+    OCR_STATUS_CHOICES = [
+        ("PENDING", "PENDING"),
+        ("SUCCESS", "SUCCESS"),
+        ("FAILED", "FAILED"),
+        ("NEEDS_REVIEW", "NEEDS_REVIEW"),
+    ]
 
     trip = models.OneToOneField(
         Trip,
@@ -40,12 +59,51 @@ class Receipt(models.Model):
         on_delete=models.PROTECT,
         related_name="receipts_uploaded",
     )
-    image_url = models.TextField()
-    total_amount = models.PositiveIntegerField(validators=[MinValueValidator(0)])
+    image = models.ImageField(
+        upload_to="receipts/%Y/%m/%d/",
+        blank=True,
+        null=True,
+    )
+
+    image_url = models.TextField(blank=True, null=True)
+
+    total_amount = models.PositiveIntegerField(
+        validators=[MinValueValidator(0)],
+        blank=True,
+        null=True,
+    )
+    ocr_raw_text = models.TextField(blank=True, null=True)
+
+    extracted_total_amount = models.PositiveIntegerField(
+        validators=[MinValueValidator(0)],
+        blank=True,
+        null=True,
+    )
+
+    extracted_departure_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    extracted_arrival_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    extracted_ride_time = models.DateTimeField(blank=True, null=True)
+
+    ocr_status = models.CharField(
+        max_length=20,
+        choices=OCR_STATUS_CHOICES,
+        default="PENDING",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
     confirmed_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-
+    updated_at = models.DateTimeField(auto_now=True)
+    
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -53,14 +111,19 @@ class Receipt(models.Model):
                 name="settlements_receipt_total_amount_nonnegative",
             ),
         ]
+        
+    def get_display_image_url(self):
+        if self.image:
+            return self.image.url
+        return self.image_url
 
     def __str__(self):
         return f"Receipt for Trip {self.trip_id}"
 
-
 class Settlement(models.Model):
     STATUS_CHOICES = [
         ("REQUEST", "REQUEST"),
+        ("LINK_OPENED", "LINK_OPENED"),
         ("PAID_SELF", "PAID_SELF"),
         ("CONFIRMED", "CONFIRMED"),
         ("DISPUTED", "DISPUTED"),
@@ -113,10 +176,11 @@ class Settlement(models.Model):
     )
 
     requested_at = models.DateTimeField(auto_now_add=True)
+    link_opened_at = models.DateTimeField(blank=True, null=True)
     paid_self_at = models.DateTimeField(blank=True, null=True)
     confirmed_at = models.DateTimeField(blank=True, null=True)
     due_at = models.DateTimeField(blank=True, null=True)
-
+    
     class Meta:
         constraints = [
             models.UniqueConstraint(

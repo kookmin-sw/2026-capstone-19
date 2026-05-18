@@ -62,3 +62,23 @@ frontend/linux/flutter/generated_plugin_registrant.cc
 frontend/linux/flutter/generated_plugin_registrant.h
 frontend/linux/flutter/generated_plugins.cmake
 frontend/macos/Flutter/GeneratedPluginRegistrant.swift
+
+# =========================
+# Python / Django / Environment
+# =========================
+.env              # 환경 변수 파일 (가장 중요!)
+.venv/            # 파이썬 가상환경 폴더
+__pycache__/      # 파이썬 컴파일 캐시 파일
+db.sqlite3        # 로컬 테스트용 DB (EC2는 PostgreSQL 쓰니까 무시)
+staticfiles/      # collectstatic으로 모인 정적 파일들
+
+# Django local environment
+Backend/.env
+.env
+
+# Django uploaded media files
+Backend/media/
+media/
+
+frontend/android/app/key.properties
+frontend/android/app/taximate-release-key.jks

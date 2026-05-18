@@ -10,31 +10,54 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 import os
+from urllib.parse import quote
 from dotenv import load_dotenv
-
-load_dotenv()
-
 from pathlib import Path
+import firebase_admin
+from firebase_admin import credentials
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-rg0l!y)axn%15+!#=_yy7qi^9&s&(_jf=+6(#rc^5j2(va-m1a'
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-dev-key")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost,10.0.2.2").split(",")
+    if host.strip()
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CSRF_TRUSTED_ORIGINS",
+        "http://127.0.0.1,http://localhost,http://10.0.2.2,https://ca-taximate-backend-dev.redstone-777f8cf9.koreacentral.azurecontainerapps.io"
+    ).split(",")
+    if origin.strip()
+]
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
+    "channels",
+    'corsheaders',
+    'storages',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -43,6 +66,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'rest_framework',
+    'rest_framework.authtoken',
 
     'accounts',
     'trips',
@@ -53,6 +77,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -80,17 +105,41 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = "config.asgi.application"
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
+REDIS_DB = os.getenv("REDIS_DB", "0")
 
+REDIS_SCHEME = "rediss" if REDIS_SSL else "redis"
 
+if REDIS_PASSWORD:
+    REDIS_URL = (
+        f"{REDIS_SCHEME}://:{quote(REDIS_PASSWORD, safe='')}"
+        f"@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    )
+else:
+    REDIS_URL = f"{REDIS_SCHEME}://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+            "prefix": "{taximate-asgi}",
+        },
+    },
+}
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "NAME": os.getenv("DB_NAME", "taximate"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
@@ -121,7 +170,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Seoul'
 
 USE_I18N = True
 
@@ -132,4 +181,68 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "receipt-images")
+AZURE_STORAGE_URL_EXPIRATION_SECS = int(
+    os.getenv("AZURE_STORAGE_URL_EXPIRATION_SECS", "3600")
+)
+
+if AZURE_STORAGE_CONNECTION_STRING:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.azure_storage.AzureStorage",
+            "OPTIONS": {
+                "connection_string": AZURE_STORAGE_CONNECTION_STRING,
+                "azure_container": AZURE_STORAGE_CONTAINER_NAME,
+                "overwrite_files": False,
+                "expiration_secs": AZURE_STORAGE_URL_EXPIRATION_SECS,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+
+CLOVA_OCR_URL = os.getenv("CLOVA_OCR_URL", "")
+CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
 AUTH_USER_MODEL = "accounts.User"
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        # 세션 인증이 필요하다면 아래 줄 추가 (관리자 페이지 등)
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # 기본적으로 인증된 사용자만 API 접근 허용 (뷰마다 덮어쓰기 가능)
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
+}
+
+FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "serviceAccountKey.json")
+
+if not firebase_admin._apps:
+    if FIREBASE_SERVICE_ACCOUNT_JSON:
+        try:
+            import json
+
+            firebase_cred_dict = json.loads(FIREBASE_SERVICE_ACCOUNT_JSON)
+            cred = credentials.Certificate(firebase_cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("✅ Firebase Admin SDK가 환경변수로 초기화되었습니다.")
+        except Exception as e:
+            print(f"❌ Firebase 환경변수 초기화 실패: {e}")
+
+    elif os.path.exists(FIREBASE_KEY_PATH):
+        cred = credentials.Certificate(FIREBASE_KEY_PATH)
+        firebase_admin.initialize_app(cred)
+        print("✅ Firebase Admin SDK가 로컬 키 파일로 초기화되었습니다.")
+
+    else:
+        print("❌ Firebase 키 정보를 찾을 수 없습니다.")

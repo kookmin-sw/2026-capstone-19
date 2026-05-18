@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models import Q
 
 
+
 phone_number_validator = RegexValidator(
     regex=r"^010[0-9]{8}$",
     message="전화번호는 하이픈 없이 01012341234 형식이어야 합니다.",
@@ -49,9 +50,12 @@ class User(AbstractUser):
 
     # 이메일 로그인 제거, username 로그인 사용
     email = None
-
+    first_name = None
+    last_name = None
+    
     username = models.CharField(max_length=150, unique=True)
-    nickname = models.CharField(max_length=20, unique=True)
+    user_real_name = models.CharField(max_length=50)
+    nickname = models.CharField(max_length=20, blank=True, null=True)
     phone_number = models.CharField(
         max_length=11,
         unique=True,
@@ -61,7 +65,14 @@ class User(AbstractUser):
         max_length=1,
         choices=GenderChoices.choices,
     )
-    profile_img_url = models.TextField(blank=True, null=True)
+    profile_img_url = models.ImageField(
+        upload_to="profiles/%Y/%m/%d/",
+        max_length=500,
+        blank=True,
+        null=True,
+    )
+    
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)
 
     trust_score = models.DecimalField(
         max_digits=3,
@@ -84,7 +95,7 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "username"
-    REQUIRED_FIELDS = ["nickname", "phone_number", "gender"]
+    REQUIRED_FIELDS = ["nickname", "user_real_name", "phone_number", "gender"]
 
     objects = UserManager()
 

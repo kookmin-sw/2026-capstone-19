@@ -98,6 +98,7 @@ class _LocationSearchScreenState extends State<LocationSearchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -122,7 +123,7 @@ class _LocationSearchScreenState extends State<LocationSearchScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _searchCtrl,
-              autofocus: true,
+              autofocus: false,
               decoration: InputDecoration(
                 hintText: '${widget.title}를 입력하세요...',
                 hintStyle: const TextStyle(fontSize: 14, color: AppColors.gray),

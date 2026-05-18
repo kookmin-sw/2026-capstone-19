@@ -11,7 +11,7 @@ class SignUpSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'nickname', 'phone_number', 'gender']
+        fields = ['username', 'password', 'nickname', "user_real_name", 'phone_number', 'gender']
 
     def create(self, validated_data):
         # UserManager의 create_user를 호출하여 비밀번호를 암호화함

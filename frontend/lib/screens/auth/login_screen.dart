@@ -2,9 +2,12 @@
 // lib/screens/auth/login_screen.dart
 // 로그인 화면 — 아이디 + 비밀번호
 // ============================================================
+import '../../service/auth_session.dart';
 import 'package:flutter/material.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
+import 'package:taximate/service/auth_service.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -39,38 +42,53 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+    // api 호출
+    final result = await AuthService.login(
+     username: _idCtrl.text.trim(),
+     password: _pwCtrl.text.trim(),
+    );
 
 
-    // TODO: 실제 Firebase Auth 연동 시 아래 코드로 교체
-    // try {
-    //   await FirebaseAuth.instance.signInWithEmailAndPassword(
-    //     email: _idCtrl.text.trim(),
-    //     password: _pwCtrl.text.trim(),
-    //   );
-    //   Navigator.pushReplacementNamed(context, AppRoutes.main);
-    // } on FirebaseAuthException catch (e) {
-    //   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? '로그인 실패')));
-    // } finally {
-    //   setState(() => _isLoading = false);
-    // }
-
-
-    // 임시: 1.5초 후 메인 화면으로 이동 (더미 로그인)
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
     setState(() => _isLoading = false);
 
-    // pushReplacementNamed: 로그인 화면을 스택에서 제거하고 메인으로 이동
-    // (뒤로가기로 로그인 화면으로 돌아올 수 없게)
-    Navigator.pushReplacementNamed(context, AppRoutes.main);
-  }
+    if (result['success'] == true) {
+      final token = result['token']?.toString() ?? '';
+      final username = result['username']?.toString() ?? '';
 
+      if (token.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('로그인 토큰을 받지 못했습니다.'),
+            backgroundColor: AppColors.red,
+          ),
+        );
+        return;
+      }
+
+      AuthSession.save(
+        newToken: token,
+        newUsername: username,
+      );
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRoutes.main);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ?? '로그인에 실패했습니다.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       // resizeToAvoidBottomInset: 키보드가 올라올 때 화면이 밀려 올라가도록
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 28),

@@ -1,10 +1,12 @@
 // ============================================================
 // lib/screens/auth/signup_screen.dart
-// 회원가입 화면 — 이름, 성별, 전화번호, 아이디, 비밀번호, 본인인증 (AuthService 제거 버전)
+// 회원가입 화면 — 옥토모(OCTOMO) 역발상 인증 방식
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
+import '../../service/auth_service.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -21,16 +23,33 @@ class _SignupScreenState extends State<SignupScreen> {
   final _idCtrl    = TextEditingController();
   final _pwCtrl    = TextEditingController();
   final _pwConfCtrl= TextEditingController();
-  final _codeCtrl  = TextEditingController(); // 인증번호 입력
 
   // 상태 변수들
   String? _selectedGender;      // '남' | '여' | '기타'
   bool _pwVisible     = false;
   bool _pwConfVisible = false;
   bool _isLoading     = false;
-  bool _codeSent      = false;  // 인증번호 전송 여부
+  bool _codeSent      = false;  // 인증번호 발급 여부
   bool _phoneVerified = false;  // 본인인증 완료 여부
-  int  _countdown     = 0;      // 인증번호 유효 시간 카운트다운
+
+  static const String _privacyPolicyUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980dd9ecde56f7e673f85?source=copy_link';
+  static const String _termsOfServiceUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980b28d71eb4b600379a1?source=copy_link';
+  static const String _locationTermsUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980e18e2cdd792512842f?source=copy_link';
+
+  bool _agreePrivacyPolicy = false;
+  bool _agreeTermsOfService = false;
+  bool _agreeLocationTerms = false;
+
+  bool get _allRequiredTermsAgreed =>
+      _agreePrivacyPolicy && _agreeTermsOfService && _agreeLocationTerms;
+  
+  // 옥토모 역발상 인증 관련 상태
+  String _authCode = '';        // 서버에서 발급받은 6자리 코드
+  String _octomoNumber = '1666-3538';  // 옥토모 대표번호
+  bool _isVerifying = false;    // 인증 확인 진행 중
 
   @override
   void dispose() {
@@ -39,45 +58,104 @@ class _SignupScreenState extends State<SignupScreen> {
     _idCtrl.dispose();
     _pwCtrl.dispose();
     _pwConfCtrl.dispose();
-    _codeCtrl.dispose();
     super.dispose();
   }
 
-  // -- 1. 인증번호 전송 (더미 처리) --------------------------------
+  // -- 1. 옥토모 역발상 인증 - 코드 발급 --------------------------------
   Future<void> _sendVerificationCode() async {
     if (_phoneCtrl.text.length < 10) {
       _showSnackBar('올바른 전화번호를 입력해주세요.', isError: true);
       return;
     }
 
-    // AuthService 제거: 1초 대기 후 무조건 성공하는 것으로 처리
-    await Future.delayed(const Duration(seconds: 1));
+    setState(() => _isLoading = true);
 
-    setState(() {
-      _codeSent = true;
-      _countdown = 180; // 3분 타이머
-    });
-    _showSnackBar('인증번호가 전송되었습니다.');
+    try {
+      final result = await AuthService.sendVerificationCode(phone: _phoneCtrl.text.trim());
+
+      if (result['success'] == true) {
+        setState(() {
+          _codeSent = true;
+          _authCode = result['code'] ?? '';
+          _octomoNumber = result['octomoNumber'] ?? '1666-3538';
+        });
+        _showSnackBar('인증 코드가 발급되었습니다. $_octomoNumber로 SMS를 발송해주세요.');
+      } else {
+        _showSnackBar(result['message'] ?? '코드 발급에 실패했습니다.', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('오류가 발생했습니다: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  // -- 2. 인증번호 확인 (더미 처리) --------------------------------
-  Future<void> _verifyCode() async {
-    if (_codeCtrl.text.trim().length < 6) {
-      _showSnackBar('인증번호 6자리를 모두 입력해주세요.', isError: true);
+  // -- 2. 옥토모 역발상 인증 - SMS 앱 열기 --------------------------------
+  Future<void> _openSmsApp() async {
+    if (_authCode.isEmpty) {
+      _showSnackBar('인증 코드가 없습니다. 인증번호를 먼저 발급받아주세요.', isError: true);
       return;
     }
 
-    // AuthService 제거: 1초 대기 후 무조건 성공하는 것으로 처리
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _phoneVerified = true;
-      _countdown = 0;
-    });
-    _showSnackBar('본인인증이 완료되었습니다.');
+    // url_launcher용 번호는 하이픈 제거 (16663538)
+    final Uri smsUri = Uri.parse('sms:16663538?body=$_authCode');
+    
+    try {
+      if (await canLaunchUrl(smsUri)) {
+        await launchUrl(smsUri);
+      } else {
+        _showSnackBar('문자 앱을 열 수 없습니다. 수동으로 $_octomoNumber에 코드 $_authCode를 보내주세요.', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('문자 앱 실행 중 오류가 발생했습니다: $e', isError: true);
+    }
   }
 
-  // -- 3. 회원가입 처리 (더미 처리) --------------------------------
+  // -- 2. 옥토모 역발상 인증 - SMS 발송 여부 확인 --------------------------------
+  Future<void> _verifyCode() async {
+    setState(() => _isVerifying = true);
+
+    try {
+      final result = await AuthService.verifyCode(phone: _phoneCtrl.text.trim());
+
+      if (result['success'] == true && result['verified'] == true) {
+        setState(() {
+          _phoneVerified = true;
+        });
+        _showSnackBar('본인인증이 완료되었습니다.');
+      } else {
+        _showSnackBar(result['message'] ?? '인증 확인에 실패했습니다. SMS를 정확히 발송했는지 확인해주세요.', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('인증 확인 중 오류가 발생했습니다: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isVerifying = false);
+    }
+  }
+
+  Future<void> _openPolicyUrl(String url) async {
+    final uri = Uri.parse(url);
+
+    try {
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!mounted) return;
+
+      if (!opened) {
+        _showSnackBar('약관 페이지를 열 수 없습니다.', isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('약관 페이지를 여는 중 오류가 발생했습니다.', isError: true);
+      }
+    }
+  }
+
+
+  // -- 3. 회원가입 처리 --------------------------------
   Future<void> _handleSignup() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -85,20 +163,35 @@ class _SignupScreenState extends State<SignupScreen> {
       _showSnackBar('성별을 선택해주세요.', isError: true);
       return;
     }
+
     if (!_phoneVerified) {
       _showSnackBar('본인인증을 완료해주세요.', isError: true);
+      return;
+    }
+
+    if (!_allRequiredTermsAgreed) {
+      _showSnackBar('필수 약관에 모두 동의해주세요.', isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      // AuthService 제거: 1.5초 대기 후 가입 성공으로 처리
-      await Future.delayed(const Duration(milliseconds: 1500));
+      final result = await AuthService.signup(
+        name: _nameCtrl.text.trim(),
+        username: _idCtrl.text.trim(),
+        gender: _selectedGender!,
+        phone: _phoneCtrl.text.trim(),
+        password: _pwCtrl.text,
+      );
 
-      if (mounted) {
-        _showSnackBar('회원가입이 완료되었습니다!');
-        Navigator.pop(context); // 가입 성공 시 이전 화면(로그인)으로 이동
+      if (result['success'] == true) {
+        if (mounted) {
+          _showSnackBar('회원가입이 완료되었습니다!');
+          Navigator.pop(context);
+        }
+      } else {
+        if (mounted) _showSnackBar(result['message'] ?? '회원가입에 실패했습니다.', isError: true);
       }
     } catch (e) {
       if (mounted) _showSnackBar('오류가 발생했습니다: $e', isError: true);
@@ -115,12 +208,6 @@ class _SignupScreenState extends State<SignupScreen> {
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ));
-  }
-
-  String _formatCountdown(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -227,7 +314,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                       ),
                       onPressed: _phoneVerified ? null : _sendVerificationCode,
-                      child: Text(_phoneVerified ? '완료' : (_codeSent ? '재전송' : '인증번호\n전송'),
+                      child: Text(_phoneVerified ? '완료' : (_codeSent ? '재전송' : '인증번호\n받기'),
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                     ),
@@ -236,44 +323,156 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
 
               if (_codeSent && !_phoneVerified) ...[
-                const SizedBox(height: 10),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _codeCtrl,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        maxLength: 6,
-                        decoration: _inputDeco(hint: '인증번호 6자리 입력').copyWith(
-                          counterText: '',
-                          suffixIcon: _countdown > 0
-                              ? Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            child: Text(_formatCountdown(_countdown),
-                                style: const TextStyle(color: AppColors.red, fontSize: 13, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 16),
+
+                // 코드 표시 영역
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppColors.bg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        '인증 코드',
+                        style: TextStyle(fontSize: 13, color: AppColors.gray, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.primary, width: 3),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withOpacity(0.15),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: _authCode.characters.map((char) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                            ),
+                            child: Text(
+                              char,
+                              style: const TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.secondary,
+                              ),
+                            ),
+                          )).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // 메시지 작성하기 버튼
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: const BorderSide(color: AppColors.primary, width: 1.5),
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: _openSmsApp,
+                          icon: const Icon(Icons.send, size: 18),
+                          label: const Text(
+                            '인증번호 보내기',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // SMS 안내 영역
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8E1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFFC107)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Color(0xFF5D4E37), size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$_octomoNumber로 위 코드를 문자로 보내주세요',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF5D4E37),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        '• 보내기 버튼을 눌러 인증기관으로 메시지를 수정 없이 그대로 발송하셔야 합니다.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF5D4E37), height: 1.5),
+                      ),
+                      const Text(
+                        '• 인증 메시지 발송 후, 아래 인증하기 버튼을 눌러 진행해 주세요.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF5D4E37), height: 1.5),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 인증 확인 버튼
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.secondary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    onPressed: _isVerifying ? null : _verifyCode,
+                    child: _isVerifying
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                              : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                        ),
-                        onPressed: _verifyCode,
-                        child: const Text('확인', style: TextStyle(fontWeight: FontWeight.w700)),
-                      ),
-                    ),
-                  ],
+                        : const Text(
+                            '인증 확인',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                          ),
+                  ),
                 ),
               ],
 
@@ -353,7 +552,41 @@ class _SignupScreenState extends State<SignupScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              _sectionLabel('약관 동의', Icons.description_outlined),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreePrivacyPolicy,
+                title: '개인정보 처리방침 동의',
+                url: _privacyPolicyUrl,
+                onChanged: (v) {
+                  setState(() => _agreePrivacyPolicy = v ?? false);
+                },
+              ),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreeTermsOfService,
+                title: '서비스 이용약관 동의',
+                url: _termsOfServiceUrl,
+                onChanged: (v) {
+                  setState(() => _agreeTermsOfService = v ?? false);
+                },
+              ),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreeLocationTerms,
+                title: '위치기반 서비스 약관 동의',
+                url: _locationTermsUrl,
+                onChanged: (v) {
+                  setState(() => _agreeLocationTerms = v ?? false);
+                },
+              ),
+
+              const SizedBox(height: 24),
 
               // 회원가입 버튼
               SizedBox(
@@ -366,7 +599,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
-                  onPressed: _isLoading ? null : _handleSignup,
+                  onPressed: (_isLoading || !_allRequiredTermsAgreed) ? null : _handleSignup,
                   child: _isLoading
                       ? const SizedBox(width: 22, height: 22,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
@@ -402,6 +635,58 @@ class _SignupScreenState extends State<SignupScreen> {
       ],
     );
   }
+
+  Widget _agreementTile({
+    required bool value,
+    required String title,
+    required String url,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Checkbox(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppColors.primary,
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.secondary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _openPolicyUrl(url),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(44, 32),
+            ),
+            child: const Text(
+              '보기',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   InputDecoration _inputDeco({required String hint, Widget? suffix}) {
     return InputDecoration(

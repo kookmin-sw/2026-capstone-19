@@ -1,0 +1,20 @@
+# Git 관련 파일
+.git/
+.gitignore
+
+# 파이썬 캐시 및 가상환경
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 로컬 환경 변수 (AWS에는 따로 설정해야 하므로 절대 포함 금지)
+.env
+
+# 로컬 DB (PostgreSQL을 쓸 테니 SQLite는 제외)
+db.sqlite3
+
+docker-compose.override.yml
+serviceAccountKey.json
+google-services.json
