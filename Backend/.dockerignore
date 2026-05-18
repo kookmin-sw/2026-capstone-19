@@ -18,4 +18,3 @@ db.sqlite3
 docker-compose.override.yml
 serviceAccountKey.json
 google-services.json
-

@@ -15,6 +15,9 @@ from .serializers import SignUpSerializer
 from trips.models import TripParticipant
 from django.utils import timezone
 from datetime import timedelta
+from settlements.models import Settlement
+from django.db.models import Q
+from decimal import Decimal
 
 # 옥토모 역발상 인증 설정 (.env 파일에서 로드)
 OCTOMO_API_KEY = os.getenv('OCTOMO_API_KEY', '')
@@ -68,6 +71,92 @@ class SignupView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        phone_number = request.data.get('phone_number', '').strip()
+        now = timezone.now()
+
+        if phone_number:
+            active_block = WithdrawalBlock.objects.filter(
+                phone_number=phone_number,
+                status=WithdrawalBlock.StatusChoices.ACTIVE,
+            ).order_by('-created_at').first()
+
+            if active_block:
+                if active_block.blocked_until <= now:
+                    active_block.status = WithdrawalBlock.StatusChoices.EXPIRED
+                    active_block.save(update_fields=['status', 'updated_at'])
+                else:
+                    return Response(
+                        {
+                            'success': False,
+                            'message': (
+                                '해당 전화번호는 탈퇴 후 재가입 제한 상태입니다. '
+                                f'제한 해제일: {active_block.blocked_until.strftime("%Y.%m.%d")} '
+                                '이의제기는 crescit2026@gmail.com 으로 문의해주세요.'
+                            ),
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+            inactive_user = User.objects.filter(
+                phone_number=phone_number,
+                is_active=False,
+            ).first()
+
+            if inactive_user:
+                username = request.data.get('username', '').strip()
+                password = request.data.get('password', '')
+                nickname = request.data.get('nickname', '').strip()
+                user_real_name = request.data.get('user_real_name', '').strip()
+                gender = request.data.get('gender', '').strip()
+
+                if not username or not password or not user_real_name or not gender:
+                    return Response(
+                        {
+                            'success': False,
+                            'message': '아이디, 비밀번호, 이름, 성별 정보가 필요합니다.',
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if User.objects.exclude(id=inactive_user.id).filter(username=username).exists():
+                    return Response(
+                        {
+                            'success': False,
+                            'message': '이미 사용 중인 아이디입니다.',
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                inactive_user.username = username
+                inactive_user.nickname = nickname or None
+                inactive_user.user_real_name = user_real_name
+                inactive_user.gender = gender
+                inactive_user.is_active = True
+                inactive_user.is_suspended = False
+                inactive_user.suspended_until = None
+                inactive_user.fcm_token = None
+                inactive_user.set_password(password)
+                inactive_user.save(update_fields=[
+                    'username',
+                    'nickname',
+                    'user_real_name',
+                    'gender',
+                    'is_active',
+                    'is_suspended',
+                    'suspended_until',
+                    'fcm_token',
+                    'password',
+                    'updated_at',
+                ])
+
+                return Response(
+                    {
+                        'success': True,
+                        'message': '회원가입이 완료되었습니다.',
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
         serializer = SignUpSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -75,6 +164,7 @@ class SignupView(APIView):
                 {'success': True, 'message': '회원가입 성공!'},
                 status=status.HTTP_201_CREATED
             )
+
         return Response(
             {'success': False, 'message': serializer.errors},
             status=status.HTTP_400_BAD_REQUEST
@@ -185,7 +275,10 @@ class ProfileImageUpdateView(APIView):
         if 'profile_image' in request.FILES:
             user.profile_img_url = request.FILES['profile_image']
             user.save()
-            return Response({"message": "Profile image updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Profile image updated successfully",
+                "profile_img_url": request.build_absolute_uri(user.profile_img_url.url) if user.profile_img_url else None,
+            }, status=status.HTTP_200_OK)
         return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -193,16 +286,44 @@ class TripHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        participants = TripParticipant.objects.filter(user=request.user).select_related('trip').order_by(
-            '-trip__depart_time')
+        participants = TripParticipant.objects.filter(
+            user=request.user,
+            status='JOINED',
+            trip__status='COMPLETED',
+        ).select_related('trip').order_by('-trip__depart_time')
+
         history_data = []
 
         for p in participants:
             trip = p.trip
-            members_count = TripParticipant.objects.filter(trip=trip, status='JOINED').count()
-            total_fare = trip.estimated_fare or 0
-            # 💡 들여쓰기 수정 완료!
-            my_fare = int(total_fare / members_count) if members_count > 0 else 0
+
+            members_count = TripParticipant.objects.filter(
+                trip=trip,
+                status='JOINED',
+            ).count()
+
+            my_settlement = Settlement.objects.filter(
+                trip=trip,
+                payer_user=request.user,
+            ).exclude(
+                status='CANCELED',
+            ).select_related('receipt').order_by('-requested_at').first()
+
+            if my_settlement:
+                my_fare = my_settlement.share_amount
+                total_fare = my_settlement.receipt.total_amount or 0
+            else:
+                representative_settlement = Settlement.objects.filter(
+                    trip=trip,
+                ).exclude(
+                    status='CANCELED',
+                ).select_related('receipt').order_by('-requested_at').first()
+
+                if not representative_settlement:
+                    continue
+
+                my_fare = representative_settlement.share_amount
+                total_fare = representative_settlement.receipt.total_amount or 0
 
             history_data.append({
                 "date": trip.depart_time.strftime("%Y.%m.%d") if trip.depart_time else "날짜 미정",
@@ -214,7 +335,7 @@ class TripHistoryView(APIView):
                 "total": total_fare,
                 "my": my_fare,
             })
-        # 💡 return 위치를 for 루프 밖으로 수정 완료!
+
         return Response(history_data, status=status.HTTP_200_OK)
 
 
@@ -222,23 +343,56 @@ class RecentCompanionsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        my_trip_ids = TripParticipant.objects.filter(user=request.user).values_list('trip_id', flat=True)
-        companions = TripParticipant.objects.filter(trip_id__in=my_trip_ids).exclude(user=request.user).select_related(
-            'user', 'trip').order_by('-trip__depart_time')
+        now = timezone.now()
+        one_hour_ago = now - timedelta(hours=1)
 
-        companion_data = []
-        seen_user_ids = set()
-        for c in companions:
-            if c.user.id not in seen_user_ids:
-                seen_user_ids.add(c.user.id)
+        my_participants = TripParticipant.objects.filter(
+            user=request.user,
+        ).select_related('trip').filter(
+            Q(status='JOINED') |
+            Q(trip__status='COMPLETED') |
+            Q(status='LEFT', left_at__gte=one_hour_ago)
+        ).order_by('-trip__depart_time')
+
+        trip_data = []
+
+        for my_participant in my_participants:
+            trip = my_participant.trip
+
+            companions = TripParticipant.objects.filter(
+                trip=trip,
+            ).exclude(
+                user=request.user,
+            ).select_related('user').order_by('joined_at')
+
+            companion_data = []
+            for companion in companions:
                 companion_data.append({
-                    "id": str(c.user.id),
-                    "nickname": c.user.nickname,
-                    "ride_date": c.trip.depart_time.strftime("%Y.%m.%d"),
-                    "route": f"{c.trip.depart_name} -> {c.trip.arrive_name}",
-                    "profile_image": str(c.user.profile_img_url) if c.user.profile_img_url else ""
+                    "id": str(companion.user.id),
+                    "nickname": companion.user.nickname or companion.user.username,
+                    "username": companion.user.username,
+                    "status": companion.status,
+                    "role": companion.role,
+                    "profile_image": request.build_absolute_uri(companion.user.profile_img_url.url)
+                    if companion.user.profile_img_url else "",
                 })
-        return Response(companion_data, status=status.HTTP_200_OK)
+
+            if not companion_data:
+                continue
+
+            trip_data.append({
+                "trip_id": str(trip.id),
+                "ride_date": trip.depart_time.strftime("%Y.%m.%d %H:%M") if trip.depart_time else "날짜 미정",
+                "route": f"{trip.depart_name} -> {trip.arrive_name}",
+                "depart_name": trip.depart_name,
+                "arrive_name": trip.arrive_name,
+                "trip_status": trip.status,
+                "my_participant_status": my_participant.status,
+                "left_at": my_participant.left_at.isoformat() if my_participant.left_at else None,
+                "companions": companion_data,
+            })
+
+        return Response(trip_data, status=status.HTTP_200_OK)
 
 
 class WithdrawView(APIView):
@@ -247,24 +401,52 @@ class WithdrawView(APIView):
     def post(self, request):
         user = request.user
         reason = request.data.get('reason', '자진 탈퇴')
-        is_blocked = False
+        now = timezone.now()
 
-        if user.trust_score < 3.0 or user.penalty_points > 0:
-            is_blocked = True
-            blocked_until = timezone.now() + timedelta(days=365)
+        is_app_restricted = bool(user.is_suspended)
+        if user.suspended_until and user.suspended_until > now:
+            is_app_restricted = True
+
+        is_low_trust_score = user.trust_score < Decimal("10.0")
+        is_blocked = is_app_restricted or is_low_trust_score
+
+        if is_blocked:
+            block_reasons = []
+
+            if is_app_restricted:
+                block_reasons.append('앱 이용 제한 상태')
+
+            if is_low_trust_score:
+                block_reasons.append('매너 점수 10점 미만')
+
+            block_reason = ', '.join(block_reasons)
+
             WithdrawalBlock.objects.create(
-                withdrawn_user=user, phone_number=user.phone_number,
-                blocked_until=blocked_until, trust_score_at_withdrawal=user.trust_score,
-                reason=reason, status='BLOCKED'
+                withdrawn_user=user,
+                phone_number=user.phone_number,
+                blocked_until=now + timedelta(days=365),
+                trust_score_at_withdrawal=user.trust_score,
+                reason=block_reason[:100],
+                status=WithdrawalBlock.StatusChoices.ACTIVE,
             )
 
         user.is_active = False
         user.fcm_token = None
-        user.save()
-        return Response({
-            "is_blocked": is_blocked,
-            "message": "탈퇴 처리가 완료되었습니다." if not is_blocked else "탈퇴 완료 (1년 재가입 제한)"
-        }, status=status.HTTP_200_OK)
+        user.save(update_fields=['is_active', 'fcm_token', 'updated_at'])
+
+        return Response(
+            {
+                'success': True,
+                'is_blocked': is_blocked,
+                'message': (
+                    '탈퇴 처리가 완료되었습니다. 앱 이용 제한 또는 매너 점수 기준에 따라 1년간 재가입이 제한됩니다. '
+                    '이의제기는 crescit2026@gmail.com 으로 문의해주세요.'
+                    if is_blocked
+                    else '탈퇴 처리가 완료되었습니다. 계정 정보는 정책에 따라 1년간 보관됩니다.'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class UserProfileView(APIView):
@@ -380,6 +562,17 @@ class UserProfileView(APIView):
 
     def get(self, request):
         user = request.user
+        completed_trip_ids = TripParticipant.objects.filter(
+            user=user,
+            status='JOINED',
+            trip__status='COMPLETED',
+        ).values_list('trip_id', flat=True)
+
+        history_count = Settlement.objects.filter(
+            trip_id__in=completed_trip_ids,
+        ).exclude(
+            status='CANCELED',
+        ).values('trip_id').distinct().count()
         return Response({
             'success': True,
             'data': {
@@ -388,11 +581,13 @@ class UserProfileView(APIView):
                 'nickname': user.nickname,
                 'trust_score': float(user.trust_score),
                 'successful_streak_count': user.successful_streak_count,
-                'profile_img_url': user.profile_img_url.url if user.profile_img_url else None,
+                'history_count': history_count,
+                'profile_img_url': request.build_absolute_uri(user.profile_img_url.url) if user.profile_img_url else None,
                 # 📍 추가: DB에 추가한 인증 필드값을 내려줍니다.
                 'is_phone_verified': getattr(user, 'is_phone_verified', False),
             }
         }, status=status.HTTP_200_OK)
+
 class UpdateFCMTokenView(APIView):
     """
     사용자의 FCM 기기 토큰을 업데이트하는 뷰

@@ -79,3 +79,6 @@ Backend/.env
 # Django uploaded media files
 Backend/media/
 media/
+
+frontend/android/app/key.properties
+frontend/android/app/taximate-release-key.jks

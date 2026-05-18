@@ -703,6 +703,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ? 'settlement_$settlementId'
               : 'settlement_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}';
 
+          for (int i = 0; i < _messages.length; i++) {
+            final oldSettlement = _messages[i].settlement;
+
+            if (_messages[i].isSettlement &&
+                oldSettlement != null &&
+                _messages[i].id != messageId) {
+              final canceledSettlement = SettlementMessage(
+                settlementId: oldSettlement.settlementId,
+                totalAmount: oldSettlement.totalAmount,
+                shareAmount: oldSettlement.shareAmount,
+                receiptImageUrl: oldSettlement.receiptImageUrl,
+                paymentLink: oldSettlement.paymentLink,
+                status: 'CANCELED',
+              );
+
+              _messages[i] = _Message(
+                id: _messages[i].id,
+                text: '취소된 정산 정보입니다.',
+                time: _messages[i].time,
+                userId: _messages[i].userId,
+                isMe: _messages[i].isMe,
+                isLink: _messages[i].isLink,
+                isSettlement: true,
+                isSystem: _messages[i].isSystem,
+                settlement: canceledSettlement,
+                imageFile: _messages[i].imageFile,
+                imageUrl: _messages[i].imageUrl,
+              );
+            }
+          }
+
           _messages.removeWhere(
             (message) => message.isSettlement && message.id == messageId,
           );
@@ -895,17 +926,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           : roomSettlements;
 
       setState(() {
-        final settlementMessageIds = displaySettlements
-            .map((item) {
-              final map = Map<String, dynamic>.from(item as Map);
-              return 'settlement_${map['id']}';
-            })
-            .toSet();
-
         _messages.removeWhere(
-          (message) =>
-              message.isSettlement &&
-              settlementMessageIds.contains(message.id),
+          (message) => message.isSettlement,
         );
 
         for (final item in displaySettlements) {
@@ -1577,15 +1599,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             _pinnedNotice = notice;
                           });
 
-                          _channel?.sink.add(
-                            jsonEncode({
-                              'type': 'settlement_completed',
-                              'message': '정산이 완료되었습니다.',
-                              'pinned_notice': notice,
-                              'expires_at': result['expires_at']?.toString(),
-                            }),
-                          );
-
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('정산이 완료되었습니다.'),
@@ -1981,10 +1994,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         throw Exception(message);
       }
 
-      _channel?.sink.add(jsonEncode({
-        'type': 'system_message', // 백엔드 설정에 맞게 변경 가능 (예: 'trip_updated')
-        'message': '${widget.myNickname}님이 채팅방을 나갔습니다.',
-      }));
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2616,15 +2625,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         const SnackBar(content: Text('정산 요청이 생성되었습니다.')),
       );
 
-      if (settlements.isNotEmpty) {
-        final first = Map<String, dynamic>.from(settlements.first as Map);
-
-        _channel?.sink.add(jsonEncode({
-          'type': 'settlement_request',
-          'message': '정산 요청이 도착했습니다.',
-          'settlement': first,
-        }));
-      }
     } catch (e) {
       if (!mounted) return;
 

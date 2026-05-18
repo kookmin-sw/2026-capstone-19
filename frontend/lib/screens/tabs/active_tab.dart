@@ -127,13 +127,12 @@ class ActiveRidePin {
       return allRides.first;
     }
 
-
    // 🆕 1. 실시간 리스너 시작
    void initRealTimeListener(int tripId) {
      _stopListener(); // 중복 연결 방지
 
      // Django Channels 주소 (본인의 서버 설정에 맞게 수정)
-     final wsUrl = 'ws://10.0.2.2:8000/ws/trip/$tripId/';
+     final wsUrl = '${AppConfig.wsBaseUrl}/ws/trip/$tripId/';
 
      try {
        _channel = WebSocketChannel.connect(Uri.parse(wsUrl)); // 변경된 패키지 적용
@@ -156,20 +155,42 @@ class ActiveRidePin {
      _channel = null;
    }
 
+    void clearLocalState() {
+      _stopListener();
+      NotificationService.cancelOngoingRide();
+      _waitingPins = [];
+      _myPins = [];
+      _isLoading = false;
+    }
+
    // 📍 데이터 로드 및 리스너 자동 연결
-   Future<void> fetchActiveRides() async {
-     _isLoading = true;
-     notifyListeners();
-     try {
-       final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
-       if (_isDisposed) return;
-       final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+  Future<void> fetchActiveRides() async {
+    if (_isDisposed) return;
 
-       _myPins = allPins.where((p) => p.isMine).toList();
-       _waitingPins = allPins.where((p) => !p.isMine).toList();
+    final token = AuthSession.token ?? '';
 
-       final currentRide = activeRide;
-       if (currentRide != null) {
+    if (token.isEmpty) {
+      clearLocalState();
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final data = await TripService.getMyTrips(token: token);
+      if (_isDisposed || token != (AuthSession.token ?? '')) return;
+      final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+
+      final activePins = allPins
+          .where((p) => p.phase != RidePhase.completed)
+          .toList();
+
+      _myPins = activePins.where((p) => p.isMine).toList();
+      _waitingPins = activePins.where((p) => !p.isMine).toList();
+
+      final currentRide = activeRide;
+      if (currentRide != null) {
 // ✅ 수정된 부분: 핀 상태가 '모집 완료(FULL)' 또는 '정산 중(CLOSED)'일 때만 알림 표시
          if (currentRide.pinPhase == PinPhase.closed) {
            NotificationService.showOngoingRide(
@@ -203,11 +224,11 @@ class ActiveRidePin {
      } catch (e) {
        debugPrint('이용 중 데이터 로드 실패: $e');
      } finally {
-       if (!_isDisposed) {
-         _isLoading = false;
-         notifyListeners();
-       }
-     }
+       if (!_isDisposed && token == (AuthSession.token ?? '')) {
+          _isLoading = false;
+          notifyListeners();
+        }
+      }
    }
 
    // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
@@ -1104,8 +1125,14 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _tabCtrl.addListener(() => setState(() => _selectedCardId = null));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _state.fetchActiveRides());
+    _tabCtrl.addListener(() {
+      if (!mounted) return;
+      setState(() => _selectedCardId = null);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _state.fetchActiveRides();
+    });
     TripService.tripsRefreshNotifier.addListener(_state.fetchActiveRides);
 // 🤝 만석 신호가 오면 바깥의 _confirmBoarding을 호출하면서 현재 state(_state)를 전달!
   _state.onRoomFull = (tripId) {
@@ -1120,6 +1147,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
     _state.onRoomFull = null;
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
+    _state.clearLocalState();
     super.dispose();
   }
 

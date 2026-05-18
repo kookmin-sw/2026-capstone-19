@@ -265,14 +265,17 @@ class TripJoinView(APIView):
             return Response({'message': f'참여 처리 중 오류가 발생했습니다: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MyTripListView(APIView):
-    """내가 방장이거나, 멤버로 참여 중인 모든 동승 내역 조회"""
+    """내가 방장이거나 멤버로 참여 중인 모든 동승 내역 조회"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 현재 로그인한 유저가 'JOINED' 상태로 포함된 모든 트립
+        # 현재 로그인한 유저가 JOINED 상태이고,
+        # 연결된 채팅방이 실제로 존재하며 아카이브되지 않은 트립만 이용중으로 반환
         trips = Trip.objects.filter(
             trip_participants__user=request.user,
-            trip_participants__status=TripParticipant.StatusChoices.JOINED
+            trip_participants__status=TripParticipant.StatusChoices.JOINED,
+            chat_room__isnull=False,
+            chat_room__is_archived=False,
         ).distinct().order_by('-depart_time')
 
         serializer = TripSerializer(trips, many=True, context={'request': request})
@@ -326,12 +329,17 @@ class TripStatusUpdateView(APIView):
         # 권한 확인: 방장만 삭제 가능
         if trip.leader_user != request.user:
             return Response({"message": "삭제 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
-        from settlements.models import Settlement
+
+        # 정산이 생성된 매칭은 삭제 방지
         if Settlement.objects.filter(trip=trip).exists():
-            return Response({"message": "정산이 생성된 매칭은 삭제할 수 없습니다."}, status=status.HTTP_409_CONFLICT)
+            return Response(
+                {"message": "정산이 생성된 매칭은 삭제할 수 없습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         room = ChatRoom.objects.filter(trip=trip).first()
         room_id = room.id if room else None
+        trip_id = trip.id
 
         user_ids = set()
 
@@ -344,29 +352,64 @@ class TripStatusUpdateView(APIView):
 
         user_ids.update(joined_user_ids)
 
-        trip_id = trip.id
-
         channel_layer = get_channel_layer()
 
+        # 채팅방 안에 있는 사용자에게 매칭 삭제 이벤트 전송
         if channel_layer and room_id:
+            trip_deleted_event = {
+                "type": "broadcast_message",
+                "message_type": "trip_deleted",
+                "message": "리더가 매칭을 삭제했습니다.",
+                "sender": request.user.username,
+                "sender_user_id": request.user.id,
+                "room_id": room_id,
+                "trip_id": trip_id,
+                "reason": "trip_deleted",
+            }
+
             async_to_sync(channel_layer.group_send)(
                 f"chat_{room_id}",
+                trip_deleted_event,
+            )
+
+            if room_id != trip_id:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{trip_id}",
+                    trip_deleted_event,
+                )
+
+        # ActiveTab 등 trip 상태 구독 화면에 삭제 이벤트 전송
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f"trip_{trip_id}",
                 {
-                    "type": "broadcast_message",
-                    "message_type": "trip_deleted",
-                    "message": "리더가 매칭을 삭제했습니다.",
-                    "sender": request.user.username,
-                    "sender_user_id": request.user.id,
-                    "room_id": room_id,
-                    "trip_id": trip_id,
-                    "reason": "trip_deleted",
+                    "type": "trip_update",
+                    "status": "DELETED",
+                    "message": "trip_deleted",
                 },
             )
 
-        # 핀(방) 삭제
-        trip_id = trip.id
-        trip.delete()
+        # 핀/매칭은 실제 삭제하지 않고 취소 상태로 전환한다.
+        # 실제 삭제하면 Trip -> ChatRoom -> ChatMessage CASCADE로 채팅 증빙이 사라질 수 있다.
+        trip.status = Trip.StatusChoices.CANCELED
+        trip.save(update_fields=["status"])
 
+        if room:
+            now = timezone.now()
+
+            ChatMessage.objects.create(
+                room=room,
+                sender_user=request.user,
+                message="리더가 매칭을 삭제했습니다.",
+                message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+            )
+
+            room.pinned_notice = "리더가 매칭을 삭제했습니다."
+            room.expires_at = now
+            room.is_archived = True
+            room.save(update_fields=["pinned_notice", "expires_at", "is_archived"])
+
+        # 채팅방 목록에 있는 사용자에게 방 제거 이벤트 전송
         notify_chat_room_removed(
             room_id=room_id,
             trip_id=trip_id,
@@ -375,18 +418,6 @@ class TripStatusUpdateView(APIView):
         )
 
         # 성공 시 204 No Content 반환
-# 🚀 [추가] 실시간 웹소켓 신호 발송 (방이 없어졌음을 알림)
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                f"trip_{trip_id}",
-                {
-                    "type": "trip_update",
-                    "status": "DELETED",
-                    "message": "trip_deleted"
-                }
-            )
-        # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -440,18 +471,26 @@ class TripLeaveView(APIView):
             channel_layer = get_channel_layer()
 
             if channel_layer:
+                leave_event = {
+                    "type": "broadcast_message",
+                    "message_type": "system_message",
+                    "message": system_text,
+                    "sender": user.username,
+                    "sender_user_id": user.id,
+                    "message_id": system_message.id,
+                    "sent_at": system_message.sent_at.isoformat(),
+                }
+
                 async_to_sync(channel_layer.group_send)(
                     f"chat_{room.id}",
-                    {
-                        "type": "broadcast_message",
-                        "message_type": "system_message",
-                        "message": system_text,
-                        "sender": user.username,
-                        "sender_user_id": user.id,
-                        "message_id": system_message.id,
-                        "sent_at": system_message.sent_at.isoformat(),
-                    },
+                    leave_event,
                 )
+
+                if room.id != trip.id:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{trip.id}",
+                        leave_event,
+                    )
 
                 remaining_user_ids = set()
 
