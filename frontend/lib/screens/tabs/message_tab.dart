@@ -13,6 +13,7 @@ import '../../service/settlement_service.dart';
 import '../../config/app_config.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import '../../service/notification_service.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -306,11 +307,17 @@ class _MessageTabState extends State<MessageTab> {
           final int? roomId = decoded['room_id'] is int
               ? decoded['room_id'] as int
               : int.tryParse(decoded['room_id']?.toString() ?? '');
+          final String lastMsg = decoded['last_message']?.toString() ?? '';
 
           final String sender = decoded['sender']?.toString() ?? '';
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
 
           if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
+
+            NotificationService.showOngoingRide(
+              title: '💬 $sender',
+              body: lastMsg,
+            );
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });
@@ -387,7 +394,6 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
-        _syncChatTabBadge();
 
         _openedRoomId = room.id;
 
@@ -407,7 +413,6 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
-        _syncChatTabBadge();
         await _fetchChatRooms(showLoading: false);
       },
       child: Container(
@@ -522,6 +527,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationService.currentActiveRoomId = widget.room.id;
     _pinnedNotice = widget.room.pinnedNotice;
     _refreshCurrentRoomInfo();
     _loadChatMessages();
@@ -575,7 +581,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/?token=$token');
     _channel = WebSocketChannel.connect(wsUrl);
 
-    _channel!.stream.listen((data) async {
+    _channel!.stream.listen((data) {
       final decodedRaw = jsonDecode(data);
 
       if (decodedRaw is! Map) {
@@ -621,7 +627,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       }
 
       setState(() {
-        
+
 
         if (messageType == 'settlement_completed') {
           final notice = decoded['pinned_notice']?.toString();
@@ -939,6 +945,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    NotificationService.currentActiveRoomId = null;
     _channel?.sink.close();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
@@ -1583,16 +1590,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                               content: Text('정산이 완료되었습니다.'),
                             ),
                           );
-
-                          if (!_hasShownEvaluation) {
-                            _hasShownEvaluation = true;
-                            await EvaluationHelper.showGlobalEvaluationDialog(
-                              context: context,
-                              roomId: widget.room.id,
-                              tripId: widget.room.tripId,
-                              roomName: widget.room.name,
-                            );
-                          }
                         } catch (e) {
                           if (!mounted) return;
 
@@ -1983,6 +1980,10 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         throw Exception(message);
       }
 
+      _channel?.sink.add(jsonEncode({
+        'type': 'system_message', // 백엔드 설정에 맞게 변경 가능 (예: 'trip_updated')
+        'message': '${widget.myNickname}님이 채팅방을 나갔습니다.',
+      }));
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(

@@ -18,6 +18,7 @@ import 'active_tab.dart';
 import '../location_search_screen.dart';
 import '../../service/trip_service.dart';
 import '../../service/auth_session.dart';
+import 'message_tab.dart';
 
 // 탭 전환 신호 역할 (인덱스 전달)
 typedef OnTabChange = void Function(int index);
@@ -28,6 +29,7 @@ class RidePin {
   final int max, cur; // 최대 모집 인원, 현재 참여 인원
   final double lat, lng; // 실제 좌표
   final bool isMine;
+  final bool isJoined;
   final List<String> takenSeats;
 
   const RidePin({
@@ -36,6 +38,7 @@ class RidePin {
     required this.max, required this.cur,
     required this.lat, required this.lng,
     this.isMine = false,
+    this.isJoined = false,
     this.takenSeats = const [],
   });
 
@@ -126,6 +129,7 @@ class _HomeTabState extends State<HomeTab> {
         lat: double.tryParse(trip['depart_lat'].toString()) ?? 0.0,
         lng: double.tryParse(trip['depart_lng'].toString()) ?? 0.0,
         isMine: trip['is_mine'] == true || (trip['host_nickname'] ?? hostId).toString() == (AuthSession.username ?? ''),
+        isJoined: trip['is_joined'] == true,
         takenSeats: (trip['taken_seats'] as List? ?? []).map((s) => s.toString()).toList(),
       );
     }).toList();
@@ -264,7 +268,7 @@ class _HomeTabState extends State<HomeTab> {
       _mapCenterLng = centerLng;
       _visiblePins = globalPins.where((pin) {
         final distance = pin.distanceTo(centerLat, centerLng);
-        return distance <= radiusMeters;
+        return distance <= radiusMeters && !pin.isMine && !pin.isJoined;
       }).toList();
     });
   }
@@ -275,6 +279,8 @@ class _HomeTabState extends State<HomeTab> {
 
     // globalPins의 핀 마커 추가
     for (final pin in globalPins) {
+      if (pin.isJoined && !pin.isMine) continue;
+
       markers.add(Marker(
         markerId: pin.id,
         latLng: LatLng(pin.lat, pin.lng),
@@ -333,18 +339,14 @@ class _HomeTabState extends State<HomeTab> {
     if (_isMapReady && _lastPinCount != globalPins.length) {
       _lastPinCount = globalPins.length;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // 방금 추가된 새 핀(리스트의 마지막 요소)의 좌표로 카메라 이동
         if (globalPins.isNotEmpty) {
           final newPin = globalPins.last;
           _mapController?.setCenter(LatLng(newPin.lat, newPin.lng));
           _mapController?.setLevel(4);
         }
-
         if (_currentPosition != null) {
           _updateVisiblePins(_currentPosition!.latitude, _currentPosition!.longitude);
         }
-
-        // 마커 강제 새로고침
         await _refreshMapMarkers();
       });
     }
@@ -358,30 +360,76 @@ class _HomeTabState extends State<HomeTab> {
             Column(children: [
               _buildHeader(),
               Expanded(child: _buildMapWithSheet()),
-              // 이용 중 카드
+              // 이용 중 카드 버튼
               ActiveRideButton(
                 state: _activeRideState,
                 onTap: () => setState(() => _showActiveDetail = true),
               ),
             ]),
+
+            // 알림 레이어
             if (_showNotifications) _buildNotificationOverlay(),
+
+            // 이용 중 상세 시트
             if (_showActiveDetail)
               ActiveRideSheet(
                 state: _activeRideState,
                 onClose: () => setState(() => _showActiveDetail = false),
-                onGoToChat: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ActiveTabChatBridge(
-                        hostId: _activeRideState.activeRide!.hostId,
-                        dept: _activeRideState.activeRide!.dept,
-                        dest: _activeRideState.activeRide!.dest,
-                      ),
-                    ),
-                  );
+                onGoToChat: () async {
+                  final current = _activeRideState.activeRide;
+                  if (current != null) {
+                    // 로딩 표시
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                    );
+
+                    try {
+                      final data = await TripService.getChatRooms(token: AuthSession.token ?? '');
+                      final rooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
+
+                      ChatRoomModel? targetRoom;
+                      for (var room in rooms) {
+                        if (room.tripId == current.id) {
+                          targetRoom = room;
+                          break;
+                        }
+                      }
+
+                      if (mounted) Navigator.pop(context); // 로딩 닫기
+
+                      if (targetRoom != null && mounted) {
+                        Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => ChatRoomScreen(
+                            room: targetRoom!,
+                            myNickname: AuthSession.username ?? '나',
+                          )
+                        ));
+                      } else {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('채팅방을 찾을 수 없습니다.'),
+                              backgroundColor: AppColors.red, // 🌟 Text 괄호 밖으로 수정됨
+                            ),
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      if (mounted) Navigator.pop(context);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('네트워크 오류가 발생했습니다.'),
+                            backgroundColor: AppColors.red, // 🌟 Text 괄호 밖으로 수정됨
+                          ),
+                        );
+                      }
+                    }
+                  }
                 },
-              ),
+              ), // 🌟 ActiveRideSheet 정상 종료
           ],
         ),
       ),

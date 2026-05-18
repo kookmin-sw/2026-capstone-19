@@ -8,6 +8,11 @@ import 'active_tab.dart';
 import '../../service/trip_service.dart';
 import 'message_tab.dart';
 import 'dart:async';
+import '../../service/notification_service.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:convert';
+import '../../config/app_config.dart';
 
 class MatchingTab extends StatefulWidget {
   final VoidCallback? onGoHome;
@@ -87,6 +92,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
           lat: double.parse(item['depart_lat'].toString()),
           lng: double.parse(item['depart_lng'].toString()),
           isMine: item['is_mine'] == true,
+          isJoined: item['is_joined'] == true,
           takenSeats: takenSeats,
         );}).toList();
         _isFetching = false;
@@ -95,17 +101,28 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(children: [
-          _buildHeader(),
-          Expanded(child: TabBarView(controller: _tabController, children: [_buildSearchTab(), _buildCreateTab()])),
-        ]),
-      ),
-    );
-  }
+     Widget build(BuildContext context) {
+       return VisibilityDetector(
+         key: const Key('MatchingTabKey'), // 고유한 키 지정
+         onVisibilityChanged: (visibilityInfo) {
+           // 화면이 100% 완전히 보일 때 실행
+           if (visibilityInfo.visibleFraction == 1.0) {
+             if (AuthSession.token != null && AuthSession.token!.isNotEmpty) {
+               _fetchTrips(); // 👈 다른 탭에 있다가 들어오는 순간 새로고침!
+             }
+           }
+         },
+         child: Scaffold(
+           backgroundColor: Colors.white,
+           body: SafeArea(
+             child: Column(children: [
+               _buildHeader(),
+               Expanded(child: TabBarView(controller: _tabController, children: [_buildSearchTab(), _buildCreateTab()])),
+             ]),
+           ),
+         ),
+       );
+     }
 
   Widget _buildHeader() {
     return Container(
@@ -158,7 +175,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                              pin.dept.contains(_searchQuery) ||
                              pin.dest.contains(_searchQuery);
 
-        return matchesSearch && !pin.isMine;
+        return matchesSearch && !pin.isMine && !pin.isJoined;
       }).toList();
 
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -608,9 +625,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
 
     if (result['success']) {
       final int newTripId = result['id'];
-      await _fetchTrips();
-      TripService.tripsRefreshNotifier.notifyListeners();
-      TripService.chatRoomsRefreshNotifier.notifyListeners();
+
 
       final chatResult = await TripService.createChatRoom(
         token: AuthSession.token ?? '',
@@ -622,8 +637,9 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       } else {
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
-      await _fetchTrips();
-      TripService.tripsRefreshNotifier.notifyListeners();
+
+
+
 
       setState(() => _pinCreated = true);
 
@@ -1088,13 +1104,33 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     setState(() => _isLoading = false);
 
     if (result['success']) {
+   // ================= [🔥 실시간 신호 발사 코드 추가] =================
+       try {
+         // 🌟 변경: 여기도 동일하게 AppConfig와 토큰 적용
+         final encodedToken = Uri.encodeComponent(AuthSession.token ?? '');
+         final wsUrl = '${AppConfig.wsBaseUrl}/ws/trip/$tripId/?token=$encodedToken';
+
+         final tempChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+         // 방장과 기존 인원들에게 새로고침하라고 신호 발송
+         tempChannel.sink.add(jsonEncode({
+           'type': 'trip_updated',
+           'message': '새로운 참여자 진입'
+         }));
+
+         // 신호 전송 후 소켓 닫기
+         await Future.delayed(const Duration(milliseconds: 300));
+         await tempChannel.sink.close();
+         print("✅ 참여 웹소켓 신호 발송 완료");
+       } catch (e) {
+         print("❌ 참여 소켓 신호 발송 실패: $e");
+       }
        final chatResult = await TripService.createChatRoom(
         token: AuthSession.token ?? '',
         tripId: tripId,
       );
+      if (!mounted) return;
 
-      TripService.tripsRefreshNotifier.notifyListeners();
-      TripService.chatRoomsRefreshNotifier.notifyListeners();
 
       final int chatRoomId = chatResult['success']
           ? int.tryParse(chatResult['id'].toString()) ?? tripId

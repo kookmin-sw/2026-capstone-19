@@ -589,7 +589,21 @@ def complete_trip_settlement(*, trip, user):
                 "verification_method",
             ]
         )
+# 1. 매칭(Trip) 자체를 '완료' 상태로 변경
+    trip.status = "COMPLETED"
+    trip.save(update_fields=["status"])
 
+    # 2. 참여자들의 탑승 횟수/매너 점수 증가 및 상태 마감
+    participants = TripParticipant.objects.filter(trip=trip, status="JOINED")
+    for p in participants:
+        # 유저 DB 업데이트
+        p.user.successful_streak_count += 1
+        p.user.trust_score += 0.1  # 소수점 오류 방지를 위해 0.1 단위로 설정
+        p.user.save(update_fields=["successful_streak_count", "trust_score"])
+
+        # 참여자 상태 마감
+        p.status = "SETTLED"
+        p.save(update_fields=["status"])
     local_expires_at = timezone.localtime(expires_at)
     period = "오전" if local_expires_at.hour < 12 else "오후"
     hour_12 = local_expires_at.hour % 12

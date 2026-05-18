@@ -303,15 +303,12 @@ class TripService {
         }
       }
 
-      // 8. 핀 삭제 (내가 만든 핀 취소 또는 모집 취소)
-      // 📍 설명: 방장이 '핀 삭제' 버튼을 눌렀을 때 핀을 지우거나 상태를 'CANCELED'로 바꿈
-      static Future<bool> deleteTrip({
+// 8. 핀 삭제 (내가 만든 핀 취소 또는 모집 취소)
+      static Future<Map<String, dynamic>> deleteTrip({
         required String token,
         required int tripId
       }) async {
         try {
-          // 💡 백엔드 구현에 따라 실제 DELETE를 할 수도 있고, 상태를 CANCELED로 바꿀 수도 있음.
-          // 여기서는 REST API 관례에 따라 DELETE 메서드를 사용하도록 구현함.
           final response = await http.delete(
             Uri.parse('$tripApiUrl/$tripId/'),
             headers: {
@@ -319,15 +316,24 @@ class TripService {
             },
           );
 
+          // 204 No Content 또는 200 이면 성공
           if (response.statusCode == 204 || response.statusCode == 200) {
             notifyTripsChanged();
-            return true;
+            return {'success': true, 'message': '핀이 삭제되었습니다.'};
           }
-          print('핀 삭제 실패: ${response.statusCode}');
-          return false;
+
+          // 에러가 발생했을 때 (예: 409 정산 중 삭제 불가, 403 권한 없음 등)
+          Map<String, dynamic> data = {};
+          if (response.body.isNotEmpty) {
+            data = jsonDecode(utf8.decode(response.bodyBytes));
+          }
+
+          print('핀 삭제 실패: ${response.statusCode} - ${data['message']}');
+          return {'success': false, 'message': data['message'] ?? '핀 삭제 실패'};
+
         } catch (e) {
           print('핀 삭제 서버 연결 오류: $e');
-          return false;
+          return {'success': false, 'message': '서버 연결 오류: $e'};
         }
       }
 

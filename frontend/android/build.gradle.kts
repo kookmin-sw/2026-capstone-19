@@ -1,3 +1,8 @@
+plugins {
+    // Firebase를 위한 구글 서비스 플러그인 선언 (버전은 4.4.2 권장)
+    id("com.google.gms.google-services") version "4.4.2" apply false
+}
+
 allprojects {
     repositories {
         google()
