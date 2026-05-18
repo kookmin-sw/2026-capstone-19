@@ -375,8 +375,25 @@ class TripStatusUpdateView(APIView):
                 },
             )
 
-        # 핀(방) 삭제
-        trip.delete()
+        # 핀/매칭은 실제 삭제하지 않고 취소 상태로 전환한다.
+        # 실제 삭제하면 Trip -> ChatRoom -> ChatMessage CASCADE로 채팅 증빙이 사라질 수 있다.
+        trip.status = Trip.StatusChoices.CANCELED
+        trip.save(update_fields=["status"])
+
+        if room:
+            now = timezone.now()
+
+            ChatMessage.objects.create(
+                room=room,
+                sender_user=request.user,
+                message="리더가 매칭을 삭제했습니다.",
+                message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+            )
+
+            room.pinned_notice = "리더가 매칭을 삭제했습니다."
+            room.expires_at = now
+            room.is_archived = True
+            room.save(update_fields=["pinned_notice", "expires_at", "is_archived"])
 
         # 채팅방 목록에 있는 사용자에게 방 제거 이벤트 전송
         notify_chat_room_removed(
