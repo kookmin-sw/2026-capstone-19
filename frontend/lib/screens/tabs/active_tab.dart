@@ -96,6 +96,10 @@ class ActiveRideState extends ChangeNotifier {
     List<ActiveRidePin> get myPins => _myPins;
     bool get isLoading => _isLoading;
 
+    int get activePinCount =>
+        _myPins.where((p) => p.phase != RidePhase.completed).length +
+        _waitingPins.where((p) => p.phase != RidePhase.completed).length;
+
     // 📍 기존 home_tab.dart와의 호환성을 위해 이름을 activeRide로 유지합니다.
     ActiveRidePin? get activeRide {
       final allRides = [..._myPins, ..._waitingPins]

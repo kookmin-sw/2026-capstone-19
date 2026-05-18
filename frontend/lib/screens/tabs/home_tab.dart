@@ -929,6 +929,17 @@ class _HomeTabState extends State<HomeTab> {
                                         isAlreadyJoined
                                     ? null
                                     : () {
+                                        if (globalActiveRideState.activePinCount >= 2) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                '동시에 최대 2개의 동승에만 참여할 수 있습니다.',
+                                              ),
+                                              backgroundColor: AppColors.red,
+                                            ),
+                                          );
+                                          return;
+                                        }
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(

@@ -28,7 +28,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
 
   int _maxPeople = 2;
   String? _selectedSeat;
-  TimeOfDay _selectedTime = TimeOfDay.now();
+  TimeOfDay? _selectedTime;
 
   bool _pinCreated = false;
   bool _isLoading = false;
@@ -251,6 +251,13 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: isMine || isFull || isAlreadyJoined ? AppColors.gray : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   onPressed: isMine || isFull || isAlreadyJoined ? null : () async {
+                      if (globalActiveRideState.activePinCount >= 2) {
+                        _showSnackBar(
+                          '동시에 최대 2개의 동승에만 참여할 수 있습니다.',
+                          AppColors.red,
+                        );
+                        return;
+                      }
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -383,7 +390,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                 children: [
                   const Icon(Icons.access_time, color: AppColors.gray, size: 20),
                   const SizedBox(width: 10),
-                  Text(_selectedTime.format(context),
+                  Text((_selectedTime ?? TimeOfDay.now()).format(context),
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.secondary)),
                   const Spacer(),
                   const Icon(Icons.chevron_right, color: AppColors.gray),
@@ -502,7 +509,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) {
-        TimeOfDay tempTime = _selectedTime;
+        TimeOfDay tempTime = _selectedTime ?? TimeOfDay.now();
         return StatefulBuilder(
           builder: (ctx, setModalState) => Column(
             mainAxisSize: MainAxisSize.min,
@@ -518,7 +525,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                 child: CupertinoDatePicker(
                   mode: CupertinoDatePickerMode.time,
                   use24hFormat: false,
-                  initialDateTime: DateTime(2024, 1, 1, _selectedTime.hour, _selectedTime.minute),
+                  initialDateTime: DateTime(2024, 1, 1, (_selectedTime ?? TimeOfDay.now()).hour, (_selectedTime ?? TimeOfDay.now()).minute),
                   onDateTimeChanged: (dt) {
                     setModalState(() => tempTime = TimeOfDay(hour: dt.hour, minute: dt.minute));
                   },
@@ -548,6 +555,10 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
   }
 
   Future<void> _handleCreate() async {
+    if (globalActiveRideState.activePinCount >= 2) {
+      _showSnackBar('동시에 최대 2개의 동승에만 참여할 수 있습니다.', AppColors.red);
+      return;
+    }
     if (_deptCtrl.text.isEmpty || _destCtrl.text.isEmpty) {
       _showSnackBar('출발지와 목적지를 입력해주세요.', AppColors.red);
       return;
@@ -573,9 +584,10 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
     setState(() => _isLoading = true);
 
     final now = DateTime.now();
+    final effectiveTime = _selectedTime ?? TimeOfDay.now();
     final departDateTime = DateTime(
       now.year, now.month, now.day,
-      _selectedTime.hour, _selectedTime.minute,
+      effectiveTime.hour, effectiveTime.minute,
     );
 
     final result = await TripService.createTrip(
@@ -1049,6 +1061,16 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
   ]);
 
   Future<void> _handleJoin() async {
+    if (globalActiveRideState.activePinCount >= 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('동시에 최대 2개의 동승에만 참여할 수 있습니다.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final rawTripId = widget.pin['id'];

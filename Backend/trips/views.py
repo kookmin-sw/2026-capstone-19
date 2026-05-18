@@ -58,6 +58,22 @@ class TripCreateListView(APIView):
 
         if flutter_seat not in valid_seats:
             return Response({'message': '올바른 좌석을 선택해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        active_pin_count = TripParticipant.objects.filter(
+            user=request.user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).exclude(
+            trip__status__in=[
+                Trip.StatusChoices.COMPLETED,
+                Trip.StatusChoices.CANCELED,
+            ]
+        ).count()
+        if active_pin_count >= 2:
+            return Response(
+                {'message': '동시에 최대 2개의 동승에만 참여할 수 있습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # 2. 트랜잭션 처리 (Trip 생성과 Participant 생성을 한 번에)
         try:
             with transaction.atomic():
@@ -130,6 +146,21 @@ class TripJoinView(APIView):
         ).first()
         if existing_joined:
             return Response({"message": "이미 참여 중인 팀입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        active_pin_count = TripParticipant.objects.filter(
+            user=request.user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).exclude(
+            trip__status__in=[
+                Trip.StatusChoices.COMPLETED,
+                Trip.StatusChoices.CANCELED,
+            ]
+        ).count()
+        if active_pin_count >= 2:
+            return Response(
+                {"message": "동시에 최대 2개의 동승에만 참여할 수 있습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # 4. 좌석 매핑 및 중복 검사
         flutter_seat = request.data.get('seat_position')

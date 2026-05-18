@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/auth/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
@@ -13,7 +14,10 @@ import 'screens/tabs/matching_tab.dart';
 import 'screens/tabs/active_tab.dart';
 import 'screens/tabs/message_tab.dart';
 import 'screens/tabs/myPage_tab.dart';
+import 'service/auth_session.dart';
+import 'service/trip_service.dart';
 import 'utils/colors.dart';
+import 'utils/evaluation_helper.dart';
 import 'utils/routes.dart';
 
 void main() async {
@@ -85,6 +89,61 @@ class MainScreen extends StatefulWidget {
 // 메인 화면 상태 관리 클래스
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0; // 현재 선택된 탭 인덱스
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingEvaluations();
+    });
+  }
+
+  Future<void> _checkPendingEvaluations() async {
+    final token = AuthSession.token ?? '';
+    if (token.isEmpty || !mounted) return;
+
+    try {
+      final rooms = await TripService.getChatRooms(token: token);
+      final prefs = await SharedPreferences.getInstance();
+      final evaluated =
+          prefs.getStringList(EvaluationHelper.evaluatedRoomsKey) ?? [];
+
+      for (final item in rooms) {
+        if (item is! Map) continue;
+
+        final map = Map<String, dynamic>.from(item);
+        final isLeader = map['is_leader'] == true;
+        final notice = map['pinned_notice']?.toString() ?? '';
+        final roomIdRaw = map['id'];
+        final roomId = roomIdRaw is int
+            ? roomIdRaw
+            : int.tryParse(roomIdRaw?.toString() ?? '') ?? 0;
+
+        if (roomId == 0) continue;
+        if (isLeader) continue;
+        if (!notice.contains('정산이 완료되었습니다')) continue;
+        if (evaluated.contains(roomId.toString())) continue;
+
+        if (!mounted) return;
+
+        final tripIdRaw = map['trip_id'];
+        final tripId = tripIdRaw is int
+            ? tripIdRaw
+            : int.tryParse(tripIdRaw?.toString() ?? '') ?? 0;
+        final roomName = map['trip_title']?.toString() ?? '채팅방';
+
+        await EvaluationHelper.showGlobalEvaluationDialog(
+          context: context,
+          roomId: roomId,
+          tripId: tripId,
+          roomName: roomName,
+        );
+        break;
+      }
+    } catch (e) {
+      debugPrint('미완료 평가 확인 실패: $e');
+    }
+  }
 
   // 각 탭 화면 리스트
   List<Widget> get _screens => [

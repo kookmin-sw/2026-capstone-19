@@ -392,4 +392,56 @@ class TripService {
           return {'success': false, 'message': '서버 연결 오류: $e'};
         }
       }
+
+      /// GET /chat/rooms/<room_id>/participants/
+      static Future<Map<String, dynamic>> getTripParticipants({
+        required String token,
+        required int roomId,
+      }) async {
+        final uri = Uri.parse('$serverUrl/chat/rooms/$roomId/participants/');
+        final response = await http.get(
+          uri,
+          headers: {
+            'Authorization': 'Token $token',
+          },
+        );
+        final bodyText = utf8.decode(response.bodyBytes);
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(bodyText);
+          if (decoded is Map<String, dynamic>) {
+            return decoded;
+          }
+          if (decoded is Map) {
+            return Map<String, dynamic>.from(decoded);
+          }
+        }
+        throw Exception('참여자 목록 실패: ${response.statusCode} $bodyText');
+      }
+
+      /// POST /api/moderation/reviews/ — 동승 상호 평가 제출
+      static Future<void> submitTripReviews({
+        required String token,
+        required int tripId,
+        required List<Map<String, dynamic>> reviews,
+      }) async {
+        final uri = Uri.parse('$serverUrl/api/moderation/reviews/');
+        final response = await http.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Token $token',
+          },
+          body: jsonEncode({
+            'trip_id': tripId,
+            'reviews': reviews,
+          }),
+        );
+        final bodyText = utf8.decode(response.bodyBytes);
+        if (response.statusCode == 201 || response.statusCode == 200) {
+          return;
+        }
+        throw Exception(
+          '평가 제출 실패: ${response.statusCode} $bodyText',
+        );
+      }
     }

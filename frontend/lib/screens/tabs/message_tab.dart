@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../utils/colors.dart';
+import '../../utils/evaluation_helper.dart';
 //import 'active_tab.dart';
 import '../../service/trip_service.dart';
 import '../../service/settlement_service.dart';
@@ -512,6 +513,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isSettlementProcessing = false;
   bool _showAttachPanel = false;
   bool _isNoticeExpanded = false;
+  bool _hasShownEvaluation = false;
   late String _pinnedNotice;
   // 우선 주석처리
   // final ImagePicker _picker = ImagePicker();
@@ -548,6 +550,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       setState(() {
         _pinnedNotice = latestNotice;
       });
+
+      if (!widget.room.isLeader &&
+          !_hasShownEvaluation &&
+          _pinnedNotice.contains('정산이 완료되었습니다')) {
+        _hasShownEvaluation = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          await EvaluationHelper.showGlobalEvaluationDialog(
+            context: context,
+            roomId: widget.room.id,
+            tripId: widget.room.tripId,
+            roomName: widget.room.name,
+          );
+        });
+      }
     } catch (e) {
       print('채팅방 최신 공지 불러오기 실패: $e');
     }
@@ -615,12 +632,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             _pinnedNotice = '정산이 완료되었습니다.';
           }
 
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (!mounted) return;
-            _refreshCurrentRoomInfo();
-            _loadPendingSettlementsForThisRoom();
+            await _refreshCurrentRoomInfo();
+            await _loadPendingSettlementsForThisRoom();
             TripService.notifyTripsChanged();
             TripService.notifyChatRoomsChanged();
+
+            if (!widget.room.isLeader && !_hasShownEvaluation) {
+              _hasShownEvaluation = true;
+              await EvaluationHelper.showGlobalEvaluationDialog(
+                context: context,
+                roomId: widget.room.id,
+                tripId: widget.room.tripId,
+                roomName: widget.room.name,
+              );
+            }
           });
 
           return;
@@ -1556,6 +1583,16 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                               content: Text('정산이 완료되었습니다.'),
                             ),
                           );
+
+                          if (!_hasShownEvaluation) {
+                            _hasShownEvaluation = true;
+                            await EvaluationHelper.showGlobalEvaluationDialog(
+                              context: context,
+                              roomId: widget.room.id,
+                              tripId: widget.room.tripId,
+                              roomName: widget.room.name,
+                            );
+                          }
                         } catch (e) {
                           if (!mounted) return;
 
