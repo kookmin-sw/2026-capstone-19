@@ -509,7 +509,7 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
             )
           else
             _waitingBox(isPastDeparture ? '대표자의 탑승 확인을 기다리는 중...' : '출발 시각(${r.time}) 이후 정산이 시작됩니다'),
-        ] else if (r.phase == RidePhase.settled) ...[
+        ] /*else if (r.phase == RidePhase.settled) ...[
           const SizedBox(height: 10),
           if (r.isMine) ...[
             SizedBox(
@@ -545,7 +545,7 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
               label: const Text('채팅방으로 이동하여 정산 완료하기', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
             ),
           ),
-        ],
+        ],*/
       ],
     );
   }
@@ -1135,8 +1135,8 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                       ? const Center(child: CircularProgressIndicator())
                       : TabBarView(controller: _tabCtrl, children: [_buildWaitingList(), _buildMyPinList()]),
                   ),
-                  if (!_state.isLoading && _state.activeRide != null)
-                    ActiveRideButton(state: _state, onTap: () => setState(() => _showActiveDetail = true)),
+                  //if (!_state.isLoading && _state.activeRide != null)
+                    //ActiveRideButton(state: _state, onTap: () => setState(() => _showActiveDetail = true)),
                 ],
               ),
               if (_showActiveDetail)

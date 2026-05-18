@@ -599,9 +599,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
 
     if (result['success']) {
       final int newTripId = result['id'];
-      await _fetchTrips();
-      TripService.tripsRefreshNotifier.notifyListeners();
-      TripService.chatRoomsRefreshNotifier.notifyListeners();
+
 
       final chatResult = await TripService.createChatRoom(
         token: AuthSession.token ?? '',
@@ -613,10 +611,9 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       } else {
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
-      if (!mounted) return;
-      await _fetchTrips();
-      if (!mounted) return;
-      TripService.tripsRefreshNotifier.notifyListeners();
+
+
+
 
       setState(() => _pinCreated = true);
 
@@ -1078,9 +1075,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
       );
       if (!mounted) return;
 
-
-      TripService.tripsRefreshNotifier.notifyListeners();
-      TripService.chatRoomsRefreshNotifier.notifyListeners();
 
       final int chatRoomId = chatResult['success']
           ? int.tryParse(chatResult['id'].toString()) ?? tripId
