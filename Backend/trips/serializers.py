@@ -16,6 +16,7 @@ class TripSerializer(serializers.ModelSerializer):
     leader_user_id = serializers.IntegerField(source='leader_user.id', read_only=True)
     host_nickname = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
+    is_joined = serializers.SerializerMethodField()
     kakaopay_link = serializers.ReadOnlyField(source='payment_channel.kakaopay_link')
 
     # 🟢 2. 현재 이 핀에서 'JOINED' 상태인 참여자들의 좌석 리스트만 뽑기
@@ -29,7 +30,7 @@ class TripSerializer(serializers.ModelSerializer):
             'arrive_name', 'arrive_lat', 'arrive_lng',
             'depart_time', 'capacity', 'status', 'estimated_fare',
             'current_count', 'participants',
-            'leader_user_id', 'host_nickname', 'is_mine','taken_seats', 'kakaopay_link',
+            'leader_user_id', 'host_nickname', 'is_mine','is_joined','taken_seats', 'kakaopay_link',
         ]
 
     def get_current_count(self, obj):
@@ -48,3 +49,12 @@ class TripSerializer(serializers.ModelSerializer):
     def get_taken_seats(self, obj):
             # 현재 트립에서 'JOINED' 상태인 사람들의 'seat_position'만 리스트로 쫙 뽑아줍니다.
             return list(obj.trip_participants.filter(status="JOINED").values_list('seat_position', flat=True))
+
+    # 👇 여기에 이 코드를 추가해 주세요! 👇
+    def get_is_joined(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+
+        # 현재 요청을 보낸 유저가 이 여행에 'JOINED' 상태로 참여 중인지 확인
+        return obj.trip_participants.filter(user=request.user, status='JOINED').exists()

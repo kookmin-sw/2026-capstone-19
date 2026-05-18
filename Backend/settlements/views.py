@@ -145,8 +145,85 @@ class TripSettlementCreateView(APIView):
             receipt=receipt,
             actor=request.user,
         )
+
+        system_text = "정산 요청이 도착했습니다."
+
+        try:
+            from chat.models import ChatRoom, ChatMessage
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+
+            room = ChatRoom.objects.filter(trip=trip).first()
+
+            if room:
+                system_message = ChatMessage.objects.create(
+                    room=room,
+                    sender_user=request.user,
+                    message=system_text,
+                    message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+                )
+
+                channel_layer = get_channel_layer()
+
+                if channel_layer:
+                    first_settlement_data = SettlementSerializer(
+                        settlements[0],
+                        context={"request": request},
+                    ).data if settlements else None
+
+                    settlement_event = {
+                        "type": "broadcast_message",
+                        "message_type": "settlement_request",
+                        "message": system_text,
+                        "sender": request.user.username,
+                        "sender_user_id": request.user.id,
+                        "message_id": system_message.id,
+                        "sent_at": system_message.sent_at.isoformat(),
+                        "settlement": first_settlement_data,
+                    }
+
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{room.id}",
+                        settlement_event,
+                    )
+
+                    if room.id != trip.id:
+                        async_to_sync(channel_layer.group_send)(
+                            f"chat_{trip.id}",
+                            settlement_event,
+                        )
+
+                    user_ids = set()
+
+                    if trip.leader_user_id:
+                        user_ids.add(trip.leader_user_id)
+
+                    joined_user_ids = trip.trip_participants.filter(
+                        status="JOINED",
+                    ).values_list("user_id", flat=True)
+
+                    user_ids.update(joined_user_ids)
+                    user_ids.discard(request.user.id)
+
+                    for user_id in user_ids:
+                        async_to_sync(channel_layer.group_send)(
+                            f"user_{user_id}",
+                            {
+                                "type": "chat_room_updated",
+                                "room_id": room.id,
+                                "last_message": system_text,
+                                "message_type": "SYSTEM",
+                                "sender": request.user.username,
+                                "sender_user_id": request.user.id,
+                                "sent_at": system_message.sent_at.isoformat(),
+                            },
+                        )
+
+        except Exception as e:
+            print(f"[정산 요청 채팅 알림 오류] {e}")
+
         return Response(
-           SettlementSerializer(
+            SettlementSerializer(
                 settlements,
                 many=True,
                 context={"request": request},

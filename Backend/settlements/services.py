@@ -15,7 +15,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from django.conf import settings
 from datetime import timedelta
-from chat.models import ChatRoom
+from decimal import Decimal
+from chat.models import ChatRoom, ChatMessage
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
@@ -317,6 +318,9 @@ def analyze_receipt_ocr(*, receipt: Receipt, actor):
 def create_receipt(*, trip, user, validated_data):
     _validate_trip_leader(trip=trip, user=user)
 
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭은 영수증을 다시 등록할 수 없습니다.")
+
     reset_existing = validated_data.pop("reset_existing", False)
     existing_receipt = getattr(trip, "receipt", None)
 
@@ -415,6 +419,9 @@ def confirm_receipt_amount(*, receipt: Receipt, actor, total_amount: int):
 def create_settlements_for_receipt(*, receipt: Receipt, actor):
     trip = receipt.trip
     _validate_trip_leader(trip=trip, user=actor)
+
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭은 정산 요청을 다시 생성할 수 없습니다.")
 
     if receipt.total_amount is None:
         raise ValidationError("최종 결제 금액이 확정되지 않았습니다.")
@@ -558,11 +565,11 @@ def dispute_settlement(*, settlement: Settlement, user):
 def complete_trip_settlement(*, trip, user):
     """
     리더가 해당 trip의 정산을 최종 완료 처리한다.
-    - 모든 정산 요청을 CONFIRMED로 변경
-    - 채팅방 공지 문구를 정산 완료 문구로 변경
-    - 채팅방 만료 시간을 현재 시각 + 1시간으로 설정
     """
     _validate_trip_leader(trip=trip, user=user)
+
+    if trip.status == "COMPLETED":
+        raise ValidationError("이미 정산이 완료된 매칭입니다.")
 
     settlements = list(
         Settlement.objects.filter(
@@ -589,6 +596,19 @@ def complete_trip_settlement(*, trip, user):
                 "verification_method",
             ]
         )
+    # 정산 완료 즉시 모집/핀은 완료 상태로 전환한다.
+    # 단, 채팅방은 expires_at까지 유지되어야 하므로 participant.status는 변경하지 않는다.
+    # 채팅방과 이용중 탭은 expires_at까지 유지되어야 하므로,
+    # 1시간 후 삭제/정리 로직에서 최종 마감 처리한다.
+    trip.status = "COMPLETED"
+    trip.save(update_fields=["status"])
+
+    participants = TripParticipant.objects.filter(trip=trip, status="JOINED")
+
+    for p in participants:
+        p.user.successful_streak_count += 1
+        p.user.trust_score += Decimal("0.1")
+        p.user.save(update_fields=["successful_streak_count", "trust_score"])
 
     local_expires_at = timezone.localtime(expires_at)
     period = "오전" if local_expires_at.hour < 12 else "오후"
@@ -614,12 +634,22 @@ def complete_trip_settlement(*, trip, user):
                 "is_archived",
             ]
         )
+
+        system_message = ChatMessage.objects.create(
+            room=chat_room,
+            sender_user=user,
+            message="정산이 완료되었습니다.",
+            message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+        )
+
         channel_layer = get_channel_layer()
         if channel_layer:
             event = {
                 "type": "broadcast_message",
                 "message_type": "settlement_completed",
                 "message": "정산이 완료되었습니다.",
+                "message_id": system_message.id,
+                "sent_at": system_message.sent_at.isoformat(),
                 "pinned_notice": notice,
                 "expires_at": expires_at.isoformat(),
             }
@@ -633,6 +663,34 @@ def complete_trip_settlement(*, trip, user):
                 async_to_sync(channel_layer.group_send)(
                     f"chat_{chat_room.id}",
                     event,
+                )
+
+            user_ids = set()
+
+            if trip.leader_user_id:
+                user_ids.add(trip.leader_user_id)
+
+            joined_user_ids = trip.trip_participants.filter(
+                status="JOINED",
+            ).values_list("user_id", flat=True)
+
+            user_ids.update(joined_user_ids)
+
+            # 정산 완료 버튼을 누른 리더 본인에게는 N 배지를 만들지 않는다.
+            user_ids.discard(user.id)
+
+            for user_id in user_ids:
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{user_id}",
+                    {
+                        "type": "chat_room_updated",
+                        "room_id": chat_room.id,
+                        "last_message": "정산이 완료되었습니다.",
+                        "message_type": "SYSTEM",
+                        "sender": user.username,
+                        "sender_user_id": user.id,
+                        "sent_at": system_message.sent_at.isoformat(),
+                    },
                 )
 
     return {

@@ -31,6 +31,20 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _isLoading     = false;
   bool _codeSent      = false;  // 인증번호 발급 여부
   bool _phoneVerified = false;  // 본인인증 완료 여부
+
+  static const String _privacyPolicyUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980dd9ecde56f7e673f85?source=copy_link';
+  static const String _termsOfServiceUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980b28d71eb4b600379a1?source=copy_link';
+  static const String _locationTermsUrl =
+      'https://www.notion.so/TaxiMate-360fb68f0d8980e18e2cdd792512842f?source=copy_link';
+
+  bool _agreePrivacyPolicy = false;
+  bool _agreeTermsOfService = false;
+  bool _agreeLocationTerms = false;
+
+  bool get _allRequiredTermsAgreed =>
+      _agreePrivacyPolicy && _agreeTermsOfService && _agreeLocationTerms;
   
   // 옥토모 역발상 인증 관련 상태
   String _authCode = '';        // 서버에서 발급받은 6자리 코드
@@ -119,6 +133,28 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
+  Future<void> _openPolicyUrl(String url) async {
+    final uri = Uri.parse(url);
+
+    try {
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!mounted) return;
+
+      if (!opened) {
+        _showSnackBar('약관 페이지를 열 수 없습니다.', isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('약관 페이지를 여는 중 오류가 발생했습니다.', isError: true);
+      }
+    }
+  }
+
+
   // -- 3. 회원가입 처리 --------------------------------
   Future<void> _handleSignup() async {
     if (!_formKey.currentState!.validate()) return;
@@ -127,8 +163,14 @@ class _SignupScreenState extends State<SignupScreen> {
       _showSnackBar('성별을 선택해주세요.', isError: true);
       return;
     }
+
     if (!_phoneVerified) {
       _showSnackBar('본인인증을 완료해주세요.', isError: true);
+      return;
+    }
+
+    if (!_allRequiredTermsAgreed) {
+      _showSnackBar('필수 약관에 모두 동의해주세요.', isError: true);
       return;
     }
 
@@ -510,7 +552,41 @@ class _SignupScreenState extends State<SignupScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              _sectionLabel('약관 동의', Icons.description_outlined),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreePrivacyPolicy,
+                title: '개인정보 처리방침 동의',
+                url: _privacyPolicyUrl,
+                onChanged: (v) {
+                  setState(() => _agreePrivacyPolicy = v ?? false);
+                },
+              ),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreeTermsOfService,
+                title: '서비스 이용약관 동의',
+                url: _termsOfServiceUrl,
+                onChanged: (v) {
+                  setState(() => _agreeTermsOfService = v ?? false);
+                },
+              ),
+              const SizedBox(height: 8),
+
+              _agreementTile(
+                value: _agreeLocationTerms,
+                title: '위치기반 서비스 약관 동의',
+                url: _locationTermsUrl,
+                onChanged: (v) {
+                  setState(() => _agreeLocationTerms = v ?? false);
+                },
+              ),
+
+              const SizedBox(height: 24),
 
               // 회원가입 버튼
               SizedBox(
@@ -523,7 +599,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
-                  onPressed: _isLoading ? null : _handleSignup,
+                  onPressed: (_isLoading || !_allRequiredTermsAgreed) ? null : _handleSignup,
                   child: _isLoading
                       ? const SizedBox(width: 22, height: 22,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
@@ -559,6 +635,58 @@ class _SignupScreenState extends State<SignupScreen> {
       ],
     );
   }
+
+  Widget _agreementTile({
+    required bool value,
+    required String title,
+    required String url,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Checkbox(
+            value: value,
+            onChanged: onChanged,
+            activeColor: AppColors.primary,
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.secondary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _openPolicyUrl(url),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(44, 32),
+            ),
+            child: const Text(
+              '보기',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   InputDecoration _inputDeco({required String hint, Widget? suffix}) {
     return InputDecoration(

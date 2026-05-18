@@ -13,6 +13,7 @@ import '../../service/settlement_service.dart';
 import '../../config/app_config.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import '../../service/notification_service.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -306,11 +307,17 @@ class _MessageTabState extends State<MessageTab> {
           final int? roomId = decoded['room_id'] is int
               ? decoded['room_id'] as int
               : int.tryParse(decoded['room_id']?.toString() ?? '');
+          final String lastMsg = decoded['last_message']?.toString() ?? '';
 
           final String sender = decoded['sender']?.toString() ?? '';
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
 
           if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
+
+            NotificationService.showOngoingRide(
+              title: '💬 $sender',
+              body: lastMsg,
+            );
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });
@@ -387,7 +394,6 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
-        _syncChatTabBadge();
 
         _openedRoomId = room.id;
 
@@ -407,7 +413,6 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
-        _syncChatTabBadge();
         await _fetchChatRooms(showLoading: false);
       },
       child: Container(
@@ -522,6 +527,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationService.currentActiveRoomId = widget.room.id;
     _pinnedNotice = widget.room.pinnedNotice;
     _refreshCurrentRoomInfo();
     _loadChatMessages();
@@ -575,6 +581,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/?token=$token');
     _channel = WebSocketChannel.connect(wsUrl);
 
+    // 🚨 바로 이 줄입니다! data 뒤에 아무것도 없습니다.
     _channel!.stream.listen((data) async {
       final decodedRaw = jsonDecode(data);
 
@@ -621,7 +628,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       }
 
       setState(() {
-        
+
 
         if (messageType == 'settlement_completed') {
           final notice = decoded['pinned_notice']?.toString();
@@ -695,6 +702,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           final messageId = settlementId != null
               ? 'settlement_$settlementId'
               : 'settlement_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}';
+
+          for (int i = 0; i < _messages.length; i++) {
+            final oldSettlement = _messages[i].settlement;
+
+            if (_messages[i].isSettlement &&
+                oldSettlement != null &&
+                _messages[i].id != messageId) {
+              final canceledSettlement = SettlementMessage(
+                settlementId: oldSettlement.settlementId,
+                totalAmount: oldSettlement.totalAmount,
+                shareAmount: oldSettlement.shareAmount,
+                receiptImageUrl: oldSettlement.receiptImageUrl,
+                paymentLink: oldSettlement.paymentLink,
+                status: 'CANCELED',
+              );
+
+              _messages[i] = _Message(
+                id: _messages[i].id,
+                text: '취소된 정산 정보입니다.',
+                time: _messages[i].time,
+                userId: _messages[i].userId,
+                isMe: _messages[i].isMe,
+                isLink: _messages[i].isLink,
+                isSettlement: true,
+                isSystem: _messages[i].isSystem,
+                settlement: canceledSettlement,
+                imageFile: _messages[i].imageFile,
+                imageUrl: _messages[i].imageUrl,
+              );
+            }
+          }
 
           _messages.removeWhere(
             (message) => message.isSettlement && message.id == messageId,
@@ -888,17 +926,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           : roomSettlements;
 
       setState(() {
-        final settlementMessageIds = displaySettlements
-            .map((item) {
-              final map = Map<String, dynamic>.from(item as Map);
-              return 'settlement_${map['id']}';
-            })
-            .toSet();
-
         _messages.removeWhere(
-          (message) =>
-              message.isSettlement &&
-              settlementMessageIds.contains(message.id),
+          (message) => message.isSettlement,
         );
 
         for (final item in displaySettlements) {
@@ -939,6 +968,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    NotificationService.currentActiveRoomId = null;
     _channel?.sink.close();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
@@ -1569,30 +1599,11 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             _pinnedNotice = notice;
                           });
 
-                          _channel?.sink.add(
-                            jsonEncode({
-                              'type': 'settlement_completed',
-                              'message': '정산이 완료되었습니다.',
-                              'pinned_notice': notice,
-                              'expires_at': result['expires_at']?.toString(),
-                            }),
-                          );
-
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('정산이 완료되었습니다.'),
                             ),
                           );
-
-                          if (!_hasShownEvaluation) {
-                            _hasShownEvaluation = true;
-                            await EvaluationHelper.showGlobalEvaluationDialog(
-                              context: context,
-                              roomId: widget.room.id,
-                              tripId: widget.room.tripId,
-                              roomName: widget.room.name,
-                            );
-                          }
                         } catch (e) {
                           if (!mounted) return;
 
@@ -2614,15 +2625,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         const SnackBar(content: Text('정산 요청이 생성되었습니다.')),
       );
 
-      if (settlements.isNotEmpty) {
-        final first = Map<String, dynamic>.from(settlements.first as Map);
-
-        _channel?.sink.add(jsonEncode({
-          'type': 'settlement_request',
-          'message': '정산 요청이 도착했습니다.',
-          'settlement': first,
-        }));
-      }
     } catch (e) {
       if (!mounted) return;
 

@@ -22,6 +22,6 @@ frontend/linux/flutter/generated_plugins.cmake
 windows/flutter/generated_plugin_registrant.*
 windows/flutter/generated_plugins.cmake
 frontend/macos/Flutter/GeneratedPluginRegistrant.swift
-
+android/app/google-services.json
 # Sensitive files
 .env

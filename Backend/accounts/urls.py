@@ -1,6 +1,19 @@
 from django.urls import path
 # views.py에서 실제로 만든 4개의 클래스만 가져옵니다.
-from .views import SignupView, LoginView, SendCodeView, VerifyCodeView
+from .views import (
+    SignupView,
+    LoginView,
+    SendCodeView,
+    VerifyCodeView,
+    ProfileImageUpdateView,
+    TripHistoryView,
+    RecentCompanionsView,
+    WithdrawView,
+    UserProfileView,
+    LogoutView,
+    UpdatePhoneView,
+    UpdateFCMTokenView,
+)
 from . import views
 
 urlpatterns = [
@@ -13,9 +26,10 @@ urlpatterns = [
     path('recent-companions/', views.RecentCompanionsView.as_view(), name='recent-companions'),
     path('withdraw/', views.WithdrawView.as_view(), name='withdraw'),
     path('profile/', views.UserProfileView.as_view(), name='user-profile'),
-
+    path('logout/', LogoutView.as_view(), name='logout'),
     path('profile/image/', views.ProfileImageUpdateView.as_view(), name='update-profile-image'),
-
+    path('update-phone/', UpdatePhoneView.as_view(), name='update_phone'),
+    path('fcm-token/', UpdateFCMTokenView.as_view(), name='update_fcm_token'),
     # 2. 로그인
     path('login/', LoginView.as_view(), name='login'),
 ]

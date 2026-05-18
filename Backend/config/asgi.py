@@ -4,7 +4,7 @@ from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 import chat.routing  # 위에서 만든 routing 파일을 불러옵니다.
-
+import trips.routing
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 # 1. 먼저 장고의 기본 ASGI 어플리케이션을 가져옵니다.
@@ -17,7 +17,8 @@ application = ProtocolTypeRouter({
     # (WebSocket) 웹소켓 요청 처리
     "websocket": AuthMiddlewareStack(
         URLRouter(
-            chat.routing.websocket_urlpatterns
+            chat.routing.websocket_urlpatterns+
+            trips.routing.websocket_urlpatterns
         )
     ),
 })

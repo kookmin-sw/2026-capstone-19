@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'auth_session.dart';
@@ -152,10 +154,6 @@ class AuthService {
       final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
 
       if (response.statusCode == 200) {
-        AuthSession.save(
-                  newToken: data['token'],
-                  newUsername: data['username']
-                );
         return {
           'success': true,
           'token': data['token'],
@@ -177,9 +175,50 @@ class AuthService {
   // ============================================================
 
   // 5. 로그아웃
-  static Future<void> logout() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    // 추후 기기에 저장된 토큰(SharedPreferences) 삭제 로직 추가
+  static Future<Map<String, dynamic>> logout() async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        AuthSession.clear();
+        return {
+          'success': true,
+          'message': '이미 로그아웃 상태입니다.',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/logout/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+      );
+
+      AuthSession.clear();
+
+      if (response.statusCode == 200) {
+        final data = response.body.isNotEmpty
+            ? jsonDecode(utf8.decode(response.bodyBytes))
+            : <String, dynamic>{};
+
+        return {
+          'success': true,
+          'message': data['message'] ?? '로그아웃 되었습니다.',
+        };
+      }
+
+      return {
+        'success': true,
+        'message': '기기에서 로그아웃 되었습니다.',
+      };
+    } catch (e) {
+      AuthSession.clear();
+      return {
+        'success': true,
+        'message': '오프라인 상태로 로그아웃 되었습니다.',
+      };
+    }
   }
 
   // 6. 프로필 이미지 업데이트
@@ -187,10 +226,105 @@ class AuthService {
     await Future.delayed(const Duration(seconds: 1));
   }
 
+  static Future<Map<String, dynamic>> updateProfileImage(File imageFile) async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        return {
+          'success': false,
+          'message': '로그인이 필요합니다.',
+        };
+      }
+
+      final uri = Uri.parse('$baseUrl/profile/image/');
+      final request = http.MultipartRequest('POST', uri);
+
+      request.headers['Authorization'] = 'Token $token';
+
+      request.files.add(
+        await http.MultipartFile.fromPath('profile_image', imageFile.path),
+      );
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(utf8.decode(response.bodyBytes))
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'message': data['message'] ?? '프로필 이미지가 변경되었습니다.',
+          'profile_img_url': data['profile_img_url'],
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['error'] ?? data['message'] ?? '이미지 업로드에 실패했습니다. (${response.statusCode})',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.',
+      };
+    }
+  }
+
   // 7. 회원 탈퇴 (myPage_tab.dart 호출에 맞춤)
   static Future<Map<String, dynamic>> withdraw({required String reason}) async {
-    await Future.delayed(const Duration(seconds: 1));
-    return {'is_blocked': false, 'message': '탈퇴가 완료되었습니다.'};
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        return {
+          'is_blocked': false,
+          'success': false,
+          'message': '로그인이 필요합니다.',
+        };
+      }
+
+      final url = Uri.parse('$baseUrl/withdraw/');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'reason': reason,
+        }),
+      );
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(utf8.decode(response.bodyBytes))
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        AuthSession.clear();
+
+        return {
+          'success': true,
+          'is_blocked': data['is_blocked'] ?? false,
+          'message': data['message'] ?? '탈퇴 처리가 완료되었습니다.',
+        };
+      }
+
+      return {
+        'success': false,
+        'is_blocked': false,
+        'message': data['message'] ?? '탈퇴 처리에 실패했습니다. (${response.statusCode})',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'is_blocked': false,
+        'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.',
+      };
+    }
   }
 
   // 8. 유저 신고 (myPage_tab.dart 호출 파라미터 4개에 맞춤)
@@ -200,95 +334,258 @@ class AuthService {
     required String reason,
     String? detail,
   }) async {
-    await Future.delayed(const Duration(seconds: 1));
-    return {'success': true, 'message': '신고가 접수되었습니다.'};
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        return {
+          'success': false,
+          'message': '로그인이 필요합니다.',
+        };
+      }
+
+      final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/report/');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'target_id': targetId,
+          'trip_id': tripId,
+          'reason': reason,
+          'detail': detail ?? '',
+        }),
+      );
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(utf8.decode(response.bodyBytes))
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'message': data['message'] ?? '신고가 성공적으로 접수되었습니다.',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? '신고 접수에 실패했습니다. (${response.statusCode})',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.',
+      };
+    }
   }
 
   // 9. 이용 내역 데이터 반환 (List<Map> 타입으로 에러 방지)
   static Future<List<Map<String, dynamic>>> getTripHistory() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return [
-      {
-        'date': '2026.04.10 18:30',
-        'status': '정산 완료',
-        'team': '퇴근길 택시팟',
-        'dept': '국민대 정문',
-        'dest': '길음역',
-        'members': 4,
-        'total': '6,400',
-        'my': '1,600',
-      },
-      {
-        'date': '2026.04.05 22:10',
-        'status': '취소됨',
-        'team': '야작 끝 집가자',
-        'dept': '국민대 조형관',
-        'dest': '성신여대입구역',
-        'members': 2,
-        'total': '8,000',
-        'my': '0',
-      },
-    ];
-  }
-
-  // 10. 매너 로그 데이터 반환 (실제 API 연동)
-  static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
-    final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/trust-score-logs/');
-    final response = await http.get(
-      url,
-      headers: {
-        'Authorization': 'Token ${AuthSession.token}',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.map((item) => item as Map<String, dynamic>).toList();
-    } else {
-      throw Exception('매너 로그 조회 실패: ${response.statusCode}');
-    }
-  }
-
-  // 11. 최근 동승자 데이터 반환
-  static Future<List<Map<String, dynamic>>> getRecentCompanions() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return [
-      {
-        'id': 'user_101',
-        'nickname': '컴공과 고양이',
-        'ride_date': '2026.04.10 18:30',
-        'route': '국민대 정문 → 길음역',
-      },
-      {
-        'id': 'user_202',
-        'nickname': '지각은안돼',
-        'ride_date': '2026.04.08 08:40',
-        'route': '길음역 3번 출구 → 국민대 과학관',
-      },
-    ];
-  }
-  static Future<Map<String, dynamic>> getProfile() async {
     try {
-      final token = AuthSession.token; // 저장된 토큰 가져오기
-      if (token == null) return {'success': false, 'message': '로그인이 필요합니다.'};
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        throw Exception('로그인이 필요합니다.');
+      }
+
+      final url = Uri.parse('$baseUrl/history/');
 
       final response = await http.get(
-        Uri.parse('$baseUrl/profile/'), // 백엔드 프로필 엔드포인트
+        url,
         headers: {
+          'Authorization': 'Token $token',
           'Content-Type': 'application/json',
-          'Authorization': 'Token $token', // 토큰 인증
         },
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return {'success': true, 'data': data};
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+
+        return [];
       }
-      return {'success': false, 'message': '프로필 로딩 실패'};
+
+      throw Exception('이용 내역을 불러오지 못했습니다. (${response.statusCode})');
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      throw Exception('이용 내역을 불러오는 데 실패했습니다: $e');
+    }
+  }
+
+  // 10. 매너 로그 데이터 반환
+  static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        throw Exception('로그인이 필요합니다.');
+      }
+
+      final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/trust-score-logs/');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+
+        return [];
+      }
+
+      throw Exception('매너 로그를 불러오지 못했습니다. (${response.statusCode})');
+    } catch (e) {
+      throw Exception('매너 로그를 불러오는 데 실패했습니다: $e');
+    }
+  }
+
+  // 11. 신고 가능한 여정 및 동승자 목록 반환
+  static Future<List<Map<String, dynamic>>> getRecentCompanions() async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        throw Exception('로그인이 필요합니다.');
+      }
+
+      final url = Uri.parse('$baseUrl/recent-companions/');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+
+        return [];
+      }
+
+      throw Exception('신고 가능한 여정 목록을 불러오지 못했습니다. (${response.statusCode})');
+    } catch (e) {
+      throw Exception('신고 가능한 여정 목록을 불러오는 데 실패했습니다: $e');
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateLoggedUserPhone({
+    required String phone,
+  }) async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        return {
+          'success': false,
+          'message': '로그인이 필요합니다.',
+        };
+      }
+
+      final url = Uri.parse('$baseUrl/update-phone/');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Token $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'phone': phone,
+        }),
+      );
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(utf8.decode(response.bodyBytes))
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': data['success'] ?? true,
+          'message': data['message'] ?? '전화번호 인증 및 변경이 완료되었습니다.',
+          'phone': data['phone'],
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? '전화번호 변경에 실패했습니다. (${response.statusCode})',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.',
+      };
+    }
+  }
+
+
+    static Future<Map<String, dynamic>> getProfile() async {
+    try {
+      final token = AuthSession.token;
+
+      if (token == null || token.isEmpty) {
+        return {
+          'success': false,
+          'message': '로그인이 필요합니다.',
+        };
+      }
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/profile/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+      );
+
+      final data = response.body.isNotEmpty
+          ? jsonDecode(utf8.decode(response.bodyBytes))
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200 && data is Map<String, dynamic>) {
+        return data;
+      }
+
+      return {
+        'success': false,
+        'message': data is Map<String, dynamic>
+            ? data['message'] ?? '프로필 로딩 실패'
+            : '프로필 로딩 실패',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '서버 연결 오류',
+      };
     }
   }
 }
-

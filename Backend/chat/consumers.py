@@ -171,8 +171,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         "sent_at": saved_message["sent_at"] if saved_message else None,
                     },
                 )
-
+# 🚀 [추가] 푸시 알림 발송
+            await self._send_push_notifications(
+                title="💰 정산 요청",
+                body=settlement_message,
+                fcm_type="SETTLEMENT_REQUEST"
+            )
             return
+
         
         if message_type == "settlement_completed":
             completed_message = data.get("message", "정산이 완료되었습니다.")
@@ -208,7 +214,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         "sent_at": saved_message["sent_at"] if saved_message else None,
                     },
                 )
-
+# 🚀 [추가] 푸시 알림 발송
+            await self._send_push_notifications(
+                title="✅ 정산 완료",
+                body=completed_message,
+                fcm_type="SETTLEMENT_COMPLETED"
+            )
             return
 
         message = data.get("message", "")
@@ -228,7 +239,40 @@ class ChatConsumer(AsyncWebsocketConsumer):
             },
         )
         await self._notify_chat_room_updated(saved_message)
+# 🚀 [추가] 푸시 알림 발송 (자신 제외)
+        await self._send_push_notifications(
+            title=f"💬 {sender}님의 메시지",
+            body=message,
+            fcm_type="CHAT"
+        )
+# 🌟 추가: 푸시 알림 발송을 총괄하는 비동기 메서드
+    async def _send_push_notifications(self, title, body, fcm_type):
+        user_ids = await self._get_room_notification_user_ids()
+        # 나(전송자)를 제외한 나머지 인원 필터링
+        target_user_ids = [uid for uid in user_ids if uid != self.user.id]
 
+        if target_user_ids:
+            await self._dispatch_fcm_to_users(target_user_ids, title, body, fcm_type)
+
+    # 🌟 추가: 실제 DB에서 유저를 조회하고 FCM을 쏘는 동기 메서드
+    @sync_to_async
+    def _dispatch_fcm_to_users(self, user_ids, title, body, fcm_type):
+        from accounts.models import User
+        from accounts.utils import send_fcm_notification # 아까 만든 유틸 함수
+
+        # 토큰이 있는 유저들만 조회
+        targets = User.objects.filter(id__in=user_ids).exclude(fcm_token__isnull=True).exclude(fcm_token="")
+
+        for target in targets:
+            send_fcm_notification(
+                user=target,
+                title=title,
+                body=body,
+                data={
+                    "room_id": str(self.room_id),
+                    "type": fcm_type
+                }
+            )
     async def broadcast_message(self, event):
         await self.send(
             text_data=json.dumps(
