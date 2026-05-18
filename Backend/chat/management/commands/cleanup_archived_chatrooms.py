@@ -12,6 +12,14 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "mode",
+            nargs="?",
+            default="run",
+            choices=["run", "dry-run"],
+            help="Use 'dry-run' to show targets without deleting data.",
+        )
+        
+        parser.add_argument(
             "--days",
             type=int,
             default=30,
@@ -25,7 +33,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         retention_days = options["days"]
-        dry_run = options["dry_run"]
+        dry_run = options["dry_run"] or options["mode"] == "dry-run"
 
         cutoff = timezone.now() - timedelta(days=retention_days)
 
