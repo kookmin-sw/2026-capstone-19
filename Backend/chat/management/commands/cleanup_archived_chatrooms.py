@@ -1,10 +1,11 @@
 from datetime import timedelta
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
-from chat.models import ChatRoom
+from chat.models import ChatRoom, ChatMessage
 
 
 class Command(BaseCommand):
@@ -48,23 +49,44 @@ class Command(BaseCommand):
             .annotate(message_count=Count("messages"))
         )
 
-        room_count = target_rooms.count()
+        room_ids = list(target_rooms.values_list("id", flat=True))
+
+        room_count = len(room_ids)
         message_count = sum(room.message_count for room in target_rooms)
+
+        image_messages = (
+            ChatMessage.objects
+            .filter(room_id__in=room_ids)
+            .exclude(image__isnull=True)
+            .exclude(image="")
+        )
+
+        image_count = image_messages.count()
 
         if dry_run:
             self.stdout.write(
                 self.style.WARNING(
                     f"[DRY RUN] {room_count} chat rooms and "
-                    f"{message_count} messages would be deleted."
+                    f"{message_count} messages and {image_count} blob images would be deleted."
                 )
             )
             return
 
-        deleted_count, deleted_details = target_rooms.delete()
+        try:
+            with transaction.atomic():
+                for message in image_messages:
+                    message.image.delete(save=False)
+
+                deleted_count, deleted_details = target_rooms.delete()
+        except Exception as exc:
+            raise CommandError(
+                f"Failed to delete archived chat rooms with blob images: {exc}"
+            )
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Deleted {room_count} chat rooms and approximately "
-                f"{message_count} messages. Total deleted objects: {deleted_count}."
+                f"Deleted {room_count} chat rooms, approximately "
+                f"{message_count} messages, and {image_count} blob images. "
+                f"Total deleted objects: {deleted_count}."
             )
         )
