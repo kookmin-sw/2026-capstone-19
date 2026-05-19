@@ -30,7 +30,13 @@ AppBar _appBar(String title) => AppBar(
 // 1. 마이페이지 탭 (메인)
 // ============================================================
 class MyPageTab extends StatefulWidget {
-  const MyPageTab({super.key});
+  final int refreshSignal;
+
+  const MyPageTab({
+    super.key,
+    this.refreshSignal = 0,
+  });
+
   @override
   State<MyPageTab> createState() => _MyPageTabState();
 }
@@ -45,6 +51,15 @@ class _MyPageTabState extends State<MyPageTab> {
     super.initState();
     if (AuthSession.isLoggedIn) {
       _profileFuture = AuthService.getProfile();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MyPageTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.refreshSignal != widget.refreshSignal && AuthSession.isLoggedIn) {
+      _refreshProfile();
     }
   }
 
