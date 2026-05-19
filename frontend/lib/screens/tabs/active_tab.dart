@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'message_tab.dart' as chat;
 import '../../service/settlement_service.dart'; // 🌟 추가
 import '../../config/app_config.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 // ============================================================
 // 열거형 & 모델
@@ -1128,6 +1129,9 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
     _tabCtrl.addListener(() {
       if (!mounted) return;
       setState(() => _selectedCardId = null);
+      if (!_tabCtrl.indexIsChanging) {
+              _state.fetchActiveRides();
+            }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1152,93 +1156,111 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _state,
-      builder: (_, __) => Scaffold(
-        backgroundColor: AppColors.bg,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Column(
+    Widget build(BuildContext context) {
+      return VisibilityDetector(
+        key: const Key('active_tab_screen'),
+        onVisibilityChanged: (visibilityInfo) {
+          // 화면 노출도가 1.0(100%)이 되는 순간 새로고침 함수 실행!
+          if (visibilityInfo.visibleFraction == 1.0) {
+            _state.fetchActiveRides();
+          }
+        },
+        child: AnimatedBuilder(
+          animation: _state,
+          builder: (_, __) => Scaffold(
+            backgroundColor: AppColors.bg,
+            body: SafeArea(
+              child: Stack(
                 children: [
-                  _buildHeader(),
-                  _buildTabBar(),
-                  Expanded(
-                    child: _state.isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : TabBarView(controller: _tabCtrl, children: [_buildWaitingList(), _buildMyPinList()]),
+                  Column(
+                    children: [
+                      _buildHeader(),
+                      _buildTabBar(),
+                      Expanded(
+                        child: _state.isLoading
+                            ? const Center(child: CircularProgressIndicator())
+                            : TabBarView(
+                                controller: _tabCtrl,
+                                children: [_buildWaitingList(), _buildMyPinList()],
+                              ),
+                      ),
+                    ],
                   ),
-                  //if (!_state.isLoading && _state.activeRide != null)
-                    //ActiveRideButton(state: _state, onTap: () => setState(() => _showActiveDetail = true)),
+                  if (_showActiveDetail)
+                    ActiveRideSheet(
+                      state: _state,
+                      onClose: () => setState(() => _showActiveDetail = false),
+                      onGoToChat: () async {
+                        final current = _state.activeRide;
+                        if (current != null) {
+                          // 1. 로딩 화면 띄우기
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (_) => const Center(
+                              child: CircularProgressIndicator(color: AppColors.primary),
+                            ),
+                          );
+
+                          try {
+                            // 2. 채팅방 데이터 조회
+                            final data = await TripService.getChatRooms(token: AuthSession.token ?? '');
+                            final rooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
+
+                            // 3. 현재 핀과 일치하는 방 찾기
+                            ChatRoomModel? targetRoom;
+                            for (var room in rooms) {
+                              if (room.tripId == current.id) {
+                                targetRoom = room;
+                                break;
+                              }
+                            }
+
+                            // 4. 로딩 화면 닫기
+                            if (mounted) Navigator.pop(context);
+
+                            // 5. 화면 이동 또는 예외 처리
+                            if (targetRoom != null && mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ChatRoomScreen(
+                                    room: targetRoom!,
+                                    myNickname: AuthSession.username ?? '나',
+                                  ),
+                                ),
+                              );
+                            } else {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('채팅방을 찾을 수 없습니다.'),
+                                    backgroundColor: AppColors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) Navigator.pop(context);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('네트워크 오류가 발생했습니다.'),
+                                  backgroundColor: AppColors.red,
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      },
+                    ),
                 ],
               ),
-              if (_showActiveDetail)
-                ActiveRideSheet(
-                  state: _state,
-                  onClose: () => setState(() => _showActiveDetail = false),
-                  onGoToChat: () async {
-                    final current = _state.activeRide;
-                    if (current != null) {
-                      // 1. 서버에서 채팅방 ID를 찾아오는 동안 잠깐 로딩 화면을 띄웁니다.
-                      showDialog(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-                      );
-
-                      try {
-                        // 2. 서버에서 내가 속한 전체 채팅방 목록을 가져옵니다.
-                        final data = await TripService.getChatRooms(token: AuthSession.token ?? '');
-                        final rooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
-
-                        // 3. 현재 이용 중인 핀(current.id)과 연결된 진짜 채팅방을 찾습니다.
-                        ChatRoomModel? targetRoom;
-                        for (var room in rooms) {
-                          if (room.tripId == current.id) {
-                            targetRoom = room;
-                            break;
-                          }
-                        }
-
-                        // 4. 로딩 화면 닫기
-                        if (mounted) Navigator.pop(context);
-
-                        // 5. 방을 찾았다면 진짜 채팅방(ChatRoomScreen)으로 이동!
-                        if (targetRoom != null && mounted) {
-                          Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => ChatRoomScreen(
-                              room: targetRoom!, // 🌟 1. 느낌표(!) 추가
-                              myNickname: AuthSession.username ?? '나',
-                            )
-                          ));
-                        } else {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              // 🌟 2. backgroundColor를 Text 밖으로 이동!
-                              const SnackBar(content: Text('채팅방을 찾을 수 없습니다.'), backgroundColor: AppColors.red)
-                            );
-                          }
-                        }
-                      } catch (e) {
-                        if (mounted) Navigator.pop(context); // 오류 나도 로딩창은 닫기
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            // 🌟 3. backgroundColor를 Text 밖으로 이동!
-                            const SnackBar(content: Text('네트워크 오류가 발생했습니다.'), backgroundColor: AppColors.red)
-                          );
-                        }
-                      }
-                    }
-                  },
-                ),
-            ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
-
+        ), // 👈 AnimatedBuilder 닫기 (이 부분이 누락되어 있었습니다!)
+      ); // 👈 VisibilityDetector 닫기
+    }
   Widget _buildHeader() => Container(
       decoration: const BoxDecoration(color: Colors.white),
       padding: const EdgeInsets.fromLTRB(20, 10, 10, 10),
