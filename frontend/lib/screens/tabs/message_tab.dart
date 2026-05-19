@@ -242,8 +242,17 @@ class _MessageTabState extends State<MessageTab> {
 
       setState(() {
         _serverRooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
+
+        final activeRoomIds = _serverRooms.map((room) => room.id).toSet();
+        _roomsWithNewMessage.removeWhere(
+          (roomId) => !activeRoomIds.contains(roomId),
+        );
+
         _isLoading = false;
       });
+
+      _syncChatTabBadge();
+
     } catch (e) {
       print('채팅방 목록 불러오기 실패: $e');
 
@@ -394,6 +403,7 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
+        _syncChatTabBadge();
 
         _openedRoomId = room.id;
 
@@ -413,6 +423,8 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
+        _syncChatTabBadge();
+
         await _fetchChatRooms(showLoading: false);
       },
       child: Container(
@@ -426,10 +438,29 @@ class _MessageTabState extends State<MessageTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Text(room.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-                    Text(room.time, style: const TextStyle(fontSize: 11, color: AppColors.gray)),
-                  ]),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          room.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        room.time,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.gray,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Text(room.lastMessage, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.gray)),
                 ],
@@ -1862,8 +1893,12 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                   ...participants.map((participant) {
                     final username = participant['username']?.toString() ?? '';
                     final role = participant['role']?.toString() ?? 'MEMBER';
-                    final seatPosition =
-                        participant['seat_position']?.toString();
+                    final seatPosition = participant['seat_position']?.toString();
+                    final trustScoreValue = num.tryParse(
+                      participant['trust_score']?.toString() ?? '',
+                    );
+                    final trustScoreText =
+                        trustScoreValue == null ? '-' : trustScoreValue.toStringAsFixed(1);
 
                     final isLeader = role == 'LEADER';
 
@@ -1890,13 +1925,37 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  username,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.secondary,
-                                  ),
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        username,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.secondary,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFF3DC),
+                                        borderRadius: BorderRadius.circular(999),
+                                        border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+                                      ),
+                                      child: Text(
+                                        '$trustScoreText점',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 3),
                                 Text(

@@ -96,6 +96,7 @@ class MainScreen extends StatefulWidget {
 // 메인 화면 상태 관리 클래스
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+  int _myPageRefreshSignal = 0;
 
   @override
   void initState() {
@@ -161,7 +162,7 @@ class _MainScreenState extends State<MainScreen> {
     MatchingTab(onGoHome: () => setState(() => _selectedIndex = 0)),
     const ActiveTab(),
     const MessageTab(),
-    const MyPageTab(),
+    MyPageTab(refreshSignal: _myPageRefreshSignal),
   ];
 
   @override
@@ -174,7 +175,14 @@ class _MainScreenState extends State<MainScreen> {
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed, // 탭 네비게이션 바
         currentIndex: _selectedIndex, // 현재 선택된 탭 인덱스
-        onTap: (i) => setState(() => _selectedIndex = i),
+        onTap: (i) {
+          setState(() {
+            if (i == 4) {
+              _myPageRefreshSignal++;
+            }
+            _selectedIndex = i;
+          });
+        },
         backgroundColor: Colors.white,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.gray,
