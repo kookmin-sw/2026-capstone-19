@@ -200,7 +200,7 @@ class _MyPageTabState extends State<MyPageTab> {
     final String realName = userData['user_real_name'] ?? '이름 없음';
     final String username = userData['username'] ?? 'unknown';
     final String trustScore = userData['trust_score']?.toString() ?? '36.5';
-    final int tripCount = userData['successful_streak_count'] ?? 0;
+    final int tripCount = int.tryParse('${userData['history_count'] ?? 0}') ?? 0;
 
     return Container(
       color: Colors.white,

@@ -116,6 +116,7 @@ class ChatRoomParticipantsView(APIView):
             {
                 "user_id": trip.leader_user.id,
                 "username": trip.leader_user.username,
+                "trust_score": float(trip.leader_user.trust_score),
                 "role": "LEADER",
                 "status": "JOINED",
                 "seat_position": leader_participant.seat_position if leader_participant else None,
@@ -138,6 +139,7 @@ class ChatRoomParticipantsView(APIView):
                 {
                     "user_id": participant.user.id,
                     "username": participant.user.username,
+                    "trust_score": float(participant.user.trust_score),
                     "role": participant.role,
                     "status": participant.status,
                     "seat_position": participant.seat_position,
