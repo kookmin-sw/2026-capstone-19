@@ -52,13 +52,31 @@ class ActiveRidePin {
     this.pinPhase = PinPhase.open,
   });
 
+  static bool _parseBool(dynamic value) {
+    if (value == true || value == 1) return true;
+    if (value is String) {
+      return value.toLowerCase() == 'true';
+    }
+    return false;
+  }
+
+  static bool _resolveIsMine(Map<String, dynamic> json) {
+    if (_parseBool(json['is_mine'])) return true;
+
+    final me = AuthSession.username ?? '';
+    if (me.isEmpty) return false;
+
+    final hostNickname = (json['host_nickname'] ?? '').toString();
+    if (hostNickname.isNotEmpty && hostNickname == me) return true;
+
+    return false;
+  }
+
   // 📍 서버 연동: JSON 데이터를 모델로 변환
   factory ActiveRidePin.fromJson(Map<String, dynamic> json) {
     final parsedTime = DateTime.parse(json['depart_time']).toLocal();
     final hostId = (json['host_nickname'] ?? '익명').toString();
-
-    // DB의 방장 닉네임과 내 닉네임이 같으면 무조건 내가 만든 핀으로 처리!
-    final isMyPin = json['is_mine'] == true || hostId == (AuthSession.username ?? '');
+    final isMyPin = _resolveIsMine(json);
 
     return ActiveRidePin(
       id: json['id'],

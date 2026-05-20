@@ -838,10 +838,30 @@ class _MannerScreenState extends State<_MannerScreen> {
       case 'NO_SHOW':
         return '노쇼';
       case 'MANUAL_ADJUST':
+        if (detail != null && detail.contains('별점')) {
+          return '동승 상호 평가';
+        }
         return '수동 조정';
       default:
         return eventType;
     }
+  }
+
+  String _formatAppliedDelta(String? raw) {
+    final value = raw?.trim() ?? '';
+    if (value.isEmpty) return '-';
+    final normalized = value.replaceAll('+', '').trim();
+    if (normalized == '0.0' || normalized == '0') {
+      return '변동 없음';
+    }
+    return value;
+  }
+
+  bool _isNeutralDelta(String? raw) {
+    final value = raw?.trim() ?? '';
+    if (value.isEmpty) return true;
+    final normalized = value.replaceAll('+', '').trim();
+    return normalized == '0.0' || normalized == '0';
   }
 
   Color _getDirectionColor(String direction) {
@@ -896,8 +916,10 @@ class _MannerScreenState extends State<_MannerScreen> {
 
   Widget _buildLogCard(Map<String, dynamic> log) {
     final direction = log['direction']?.toString() ?? '';
-    final color = _getDirectionColor(direction);
-    final icon = _getDirectionIcon(direction);
+    final appliedDeltaRaw = log['applied_delta']?.toString();
+    final isNeutral = _isNeutralDelta(appliedDeltaRaw);
+    final color = isNeutral ? AppColors.gray : _getDirectionColor(direction);
+    final icon = isNeutral ? Icons.remove : _getDirectionIcon(direction);
     final reasonDetail = log['reason_detail']?.toString().trim() ?? '';
     final eventLabel = _getEventDisplayName(
       log['event_type']?.toString() ?? '',
@@ -957,9 +979,9 @@ class _MannerScreenState extends State<_MannerScreen> {
                     borderRadius: BorderRadius.circular(100),
                   ),
                   child: Text(
-                    log['applied_delta']?.toString() ?? '',
+                    _formatAppliedDelta(appliedDeltaRaw),
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: isNeutral ? 12 : 13,
                       fontWeight: FontWeight.w800,
                       color: color,
                     ),

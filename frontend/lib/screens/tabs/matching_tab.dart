@@ -638,8 +638,9 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
 
-
-
+      // 채팅방 생성 후 이용 중 탭이 다시 조회되도록 (createTrip만으로는 타이밍이 앞섬)
+      TripService.notifyTripsChanged();
+      globalActiveRideState.fetchActiveRides();
 
       setState(() => _pinCreated = true);
 

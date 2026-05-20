@@ -588,23 +588,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _pinnedNotice = latestNotice;
       });
 
-      if (!widget.room.isLeader &&
-          !_hasShownEvaluation &&
+      if (!_hasShownEvaluation &&
           _pinnedNotice.contains('정산이 완료되었습니다')) {
-        _hasShownEvaluation = true;
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
-          await EvaluationHelper.showGlobalEvaluationDialog(
-            context: context,
-            roomId: widget.room.id,
-            tripId: widget.room.tripId,
-            roomName: widget.room.name,
-          );
+          await _maybeShowEvaluationDialog();
         });
       }
     } catch (e) {
       print('채팅방 최신 공지 불러오기 실패: $e');
     }
+  }
+
+  Future<void> _maybeShowEvaluationDialog() async {
+    if (_hasShownEvaluation || !mounted) return;
+    _hasShownEvaluation = true;
+    await EvaluationHelper.showGlobalEvaluationDialog(
+      context: context,
+      roomId: widget.room.id,
+      tripId: widget.room.tripId,
+      roomName: widget.room.name,
+    );
   }
 
   void _connectWebSocket() {
@@ -677,15 +681,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             TripService.notifyTripsChanged();
             TripService.notifyChatRoomsChanged();
 
-            if (!widget.room.isLeader && !_hasShownEvaluation) {
-              _hasShownEvaluation = true;
-              await EvaluationHelper.showGlobalEvaluationDialog(
-                context: context,
-                roomId: widget.room.id,
-                tripId: widget.room.tripId,
-                roomName: widget.room.name,
-              );
-            }
+            await _maybeShowEvaluationDialog();
           });
 
           return;
@@ -1630,11 +1626,19 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             _pinnedNotice = notice;
                           });
 
+                          await _loadPendingSettlementsForThisRoom();
+                          TripService.notifyTripsChanged();
+                          TripService.notifyChatRoomsChanged();
+
+                          if (!mounted) return;
+
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('정산이 완료되었습니다.'),
                             ),
                           );
+
+                          await _maybeShowEvaluationDialog();
                         } catch (e) {
                           if (!mounted) return;
 

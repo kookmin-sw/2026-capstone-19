@@ -91,7 +91,16 @@ class TripCreateListView(APIView):
                         },
                     )
 
-                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                    # 이용 중 탭(/my/)은 chat_room 존재 여부로 필터하므로 핀 생성과 함께 방을 만든다.
+                    ChatRoom.objects.get_or_create(
+                        trip=trip,
+                        defaults={
+                            "pinned_notice": "택시 번호 및 만날 위치를 꼭 공유해주세요!",
+                        },
+                    )
+
+                    output = TripSerializer(trip, context={"request": request})
+                    return Response(output.data, status=status.HTTP_201_CREATED)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
@@ -138,14 +147,14 @@ class TripJoinView(APIView):
         if existing_joined:
             return Response({"message": "이미 참여 중인 팀입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # MyTripListView와 동일: 정산 완료(COMPLETED) 제외, 활성 채팅방이 있는 JOINED만 카운트
         active_pin_count = TripParticipant.objects.filter(
             user=request.user,
             status=TripParticipant.StatusChoices.JOINED,
+            trip__chat_room__isnull=False,
+            trip__chat_room__is_archived=False,
         ).exclude(
-            trip__status__in=[
-                Trip.StatusChoices.COMPLETED,
-                Trip.StatusChoices.CANCELED,
-            ]
+            trip__status=Trip.StatusChoices.COMPLETED,
         ).count()
         if active_pin_count >= 2:
             return Response(
@@ -276,6 +285,8 @@ class MyTripListView(APIView):
             trip_participants__status=TripParticipant.StatusChoices.JOINED,
             chat_room__isnull=False,
             chat_room__is_archived=False,
+        ).exclude(
+            status=Trip.StatusChoices.COMPLETED,
         ).distinct().order_by('-depart_time')
 
         serializer = TripSerializer(trips, many=True, context={'request': request})

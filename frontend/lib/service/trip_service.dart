@@ -179,6 +179,7 @@ class TripService {
 
       if (response.statusCode == 201) {
         notifyChatRoomsChanged();
+        notifyTripsChanged();
         return {'success': true, 'id': data['id']};
       } else {
         return {'success': false, 'message': '채팅방 생성 실패'};

@@ -44,7 +44,8 @@ class TripSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
             return False
-        return obj.leader_user_id == request.user.id
+        user_id = request.user.id
+        return obj.leader_user_id == user_id or obj.creator_user_id == user_id
 
     def get_taken_seats(self, obj):
             # 현재 트립에서 'JOINED' 상태인 사람들의 'seat_position'만 리스트로 쫙 뽑아줍니다.
