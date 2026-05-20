@@ -11,6 +11,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../service/trip_service.dart';
 import 'active_tab.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 // ============================================================
 // 공통 컴포넌트: AppBar
@@ -30,7 +31,13 @@ AppBar _appBar(String title) => AppBar(
 // 1. 마이페이지 탭 (메인)
 // ============================================================
 class MyPageTab extends StatefulWidget {
-  const MyPageTab({super.key});
+  final int refreshSignal;
+
+  const MyPageTab({
+    super.key,
+    this.refreshSignal = 0,
+  });
+
   @override
   State<MyPageTab> createState() => _MyPageTabState();
 }
@@ -45,6 +52,15 @@ class _MyPageTabState extends State<MyPageTab> {
     super.initState();
     if (AuthSession.isLoggedIn) {
       _profileFuture = AuthService.getProfile();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MyPageTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.refreshSignal != widget.refreshSignal && AuthSession.isLoggedIn) {
+      _refreshProfile();
     }
   }
 
@@ -200,7 +216,7 @@ class _MyPageTabState extends State<MyPageTab> {
     final String realName = userData['user_real_name'] ?? '이름 없음';
     final String username = userData['username'] ?? 'unknown';
     final String trustScore = userData['trust_score']?.toString() ?? '36.5';
-    final int tripCount = userData['successful_streak_count'] ?? 0;
+    final int tripCount = int.tryParse('${userData['history_count'] ?? 0}') ?? 0;
 
     return Container(
       color: Colors.white,
@@ -756,8 +772,11 @@ class _MannerScreen extends StatefulWidget {
 }
 
 class _MannerScreenState extends State<_MannerScreen> {
+  static final DateFormat _logDateFormat = DateFormat('yyyy.MM.dd HH:mm');
+
   List<Map<String, dynamic>> _logs = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -766,8 +785,89 @@ class _MannerScreenState extends State<_MannerScreen> {
   }
 
   Future<void> _fetchLogs() async {
-    final logs = await AuthService.getTrustScoreLogs();
-    setState(() { _logs = logs; _isLoading = false; });
+    try {
+      final logs = await AuthService.getTrustScoreLogs();
+      if (!mounted) return;
+      setState(() {
+        _logs = logs;
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '매너 로그를 불러오는 데 실패했습니다.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatLogDate(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    try {
+      return _logDateFormat.format(DateTime.parse(raw).toLocal());
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  String _getEventDisplayName(String eventType, String? reasonDetail) {
+    final detail = reasonDetail?.trim() ?? '';
+
+    if (eventType == 'EVALUATION' || detail.contains('동승 상호 평가')) {
+      return '동승 상호 평가';
+    }
+    if (eventType == 'MANUAL_ADJUST' && detail.contains('정산 지연')) {
+      return '정산 지연 패널티';
+    }
+
+    switch (eventType) {
+      case 'TRIP_LEADER_SUCCESS':
+        return '여정 개설 성공';
+      case 'TRIP_PARTICIPATION_COMPLETE':
+      case 'TRIP_PARTICIPATION_COMPLETED':
+        return '동승 완료';
+      case 'FAST_SETTLEMENT':
+        return '빠른 정산';
+      case 'STREAK_BONUS':
+        return '연속 보너스';
+      case 'NORMAL_CANCEL':
+        return '일반 취소';
+      case 'URGENT_CANCEL':
+        return '긴급 취소';
+      case 'NO_SHOW':
+        return '노쇼';
+      case 'MANUAL_ADJUST':
+        return '수동 조정';
+      default:
+        return eventType;
+    }
+  }
+
+  Color _getDirectionColor(String direction) {
+    switch (direction) {
+      case 'GAIN':
+        return AppColors.primary;
+      case 'PENALTY':
+        return AppColors.red;
+      case 'ADJUST':
+        return AppColors.accent;
+      default:
+        return AppColors.gray;
+    }
+  }
+
+  IconData _getDirectionIcon(String direction) {
+    switch (direction) {
+      case 'GAIN':
+        return Icons.arrow_upward;
+      case 'PENALTY':
+        return Icons.arrow_downward;
+      case 'ADJUST':
+        return Icons.sync;
+      default:
+        return Icons.remove;
+    }
   }
 
   @override
@@ -775,27 +875,147 @@ class _MannerScreenState extends State<_MannerScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: _appBar('매너 로그'),
-      body: _isLoading ? const Center(child: CircularProgressIndicator()) : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _logs.length,
-        itemBuilder: (_, i) => _buildLogCard(_logs[i]),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              : _logs.isEmpty
+                  ? const Center(
+                      child: Text(
+                        '매너 로그가 없습니다.',
+                        style: TextStyle(color: AppColors.gray),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _logs.length,
+                      itemBuilder: (_, i) => _buildLogCard(_logs[i]),
+                    ),
     );
   }
 
   Widget _buildLogCard(Map<String, dynamic> log) {
-    final isGain = log['direction'] == 'GAIN';
-    final color = isGain ? AppColors.primary : AppColors.red;
+    final direction = log['direction']?.toString() ?? '';
+    final color = _getDirectionColor(direction);
+    final icon = _getDirectionIcon(direction);
+    final reasonDetail = log['reason_detail']?.toString().trim() ?? '';
+    final eventLabel = _getEventDisplayName(
+      log['event_type']?.toString() ?? '',
+      reasonDetail.isEmpty ? null : reasonDetail,
+    );
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
-      child: Row(children: [
-        Container(width: 36, height: 36, decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(isGain ? Icons.arrow_upward : Icons.arrow_downward, color: color, size: 20)),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(log['event_type'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)), Text(log['created_at'], style: const TextStyle(fontSize: 11, color: AppColors.gray))])),
-        Text(log['applied_delta'], style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
-      ]),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        eventLabel,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                      Text(
+                        _formatLogDate(log['created_at']?.toString()),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.gray,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Text(
+                    log['applied_delta']?.toString() ?? '',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (reasonDetail.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.bg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reasonDetail,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.secondary,
+                      ),
+                    ),
+                    if (log['score_after'] != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const Text(
+                            '변경 후 점수: ',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.gray,
+                            ),
+                          ),
+                          Text(
+                            '${log['score_after']}점',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.secondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
