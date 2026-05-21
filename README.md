@@ -34,7 +34,12 @@
 <br><br>
 
 ## 🎬 소개 영상
-*이미지를 클릭하면 시연 영상으로 이동합니다.(영상 제작 예정)*
+**Taxi Mate - "함께 타고, 함께 아끼세요!"**
+
+<a href="https://drive.google.com/file/d/19AHEKlfMvLpWhh4dv5iodYTD4u7WNAF2/view">
+  <img src="https://github.com/rnrals220228/app-ui/blob/main/TaxiMate_%EC%86%8C%EA%B0%9C%EC%98%81%EC%83%81_%EC%8D%B8%EB%84%A4%EC%9D%BC.png?raw=true" alt="소개 영상" width="700">
+</a>
+
 <br><br>
 
 ## 👨‍👩‍👧‍👦 팀 소개 (Crescit)
@@ -72,7 +77,20 @@
 
 
 ## 💻 이용 안내
-배포 예정
+
+<div class="slider-track">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC01.jpg" alt="사용법1" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC02.jpg" alt="사용법2" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC03.jpg" alt="사용법3" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC04.jpg" alt="사용법4" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC05.jpg" alt="사용법5" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC06.jpg" alt="사용법6" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC07.jpg" alt="사용법7" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC08.jpg" alt="사용법8" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC09.jpg" alt="사용법9" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC10.jpg" alt="사용법10" width="700">
+	<img src="https://raw.githubusercontent.com/rnrals220228/app-ui/1e99a0570c48670ab52c30b7748d8698da95d249/TaxiMate_%EC%82%AC%EC%9A%A9%EC%9E%90%20%EB%A7%A4%EB%89%B4%EC%96%BC11.jpg" alt="사용법11" width="700">
+</div>
 
 <br><br>
 
@@ -154,4 +172,8 @@
 
 
 ## 📂 소개 자료
-보고서, 발표 피피티 등 삽입 예정
+
+<a href="https://m.onestore.co.kr/v2/ko-kr/app/0001005960" target="_blank"> 📱 앱 다운로드 </a><br>
+<a href="https://docs.google.com/document/d/1IgQUjX1Xs0R-JtHT8-cEg23vifuWkKE7/edit?usp=drive_link&ouid=108044978045223663333&rtpof=true&sd=true" target="_blank"> 📄 수행 결과 보고서 </a><br>
+<a href="https://drive.google.com/file/d/19wpovlE57ap-uxS3vXnECwg4ewRt_X5d/view?usp=drive_link" target="_blank"> 📄 최종 발표 자료 </a>
+
