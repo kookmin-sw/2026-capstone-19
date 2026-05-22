@@ -332,10 +332,25 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   // ── 현재 활성화된 핀의 RidePin 객체 ──
-  RidePin? get _activePinData =>
-      _activePinId == null ? null
-          : _visiblePins.firstWhere((p) => p.id == _activePinId,
-          orElse: () => globalPins.isNotEmpty ? globalPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : globalPins.first);
+  RidePin? get _activePinData {
+    if (_activePinId == null) return null;
+
+    for (final pin in _visiblePins) {
+      if (pin.id == _activePinId) {
+        return pin;
+      }
+    }
+
+    if (globalPins.isNotEmpty) {
+      return globalPins.first;
+    }
+
+    if (_visiblePins.isNotEmpty) {
+      return _visiblePins.first;
+    }
+
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {

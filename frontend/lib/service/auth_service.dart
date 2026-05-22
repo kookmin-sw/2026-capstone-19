@@ -170,11 +170,50 @@ class AuthService {
     }
   }
 
+  // 5. FCM 토큰 업데이트 / 삭제
+  static Future<Map<String, dynamic>> updateFcmToken({
+    required String token,
+    String? fcmToken,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/fcm-token/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+        body: jsonEncode({
+          'fcm_token': fcmToken,
+        }),
+      );
+
+      final Map<String, dynamic> data =
+          jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'FCM 토큰이 업데이트되었습니다.',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'FCM 토큰 업데이트에 실패했습니다.',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.',
+      };
+    }
+  }
+
   // ============================================================
   // [가짜 데이터] UI 테스트용 임시 함수 (백엔드 완성 시 http 로직으로 교체)
   // ============================================================
 
-  // 5. 로그아웃
+  // 6. 로그아웃
   static Future<Map<String, dynamic>> logout() async {
     try {
       final token = AuthSession.token;
@@ -221,7 +260,7 @@ class AuthService {
     }
   }
 
-  // 6. 프로필 이미지 업데이트
+  // 7. 프로필 이미지 업데이트
   static Future<void> updateProfile({required String profileImgUrl}) async {
     await Future.delayed(const Duration(seconds: 1));
   }
@@ -273,7 +312,7 @@ class AuthService {
     }
   }
 
-  // 7. 회원 탈퇴 (myPage_tab.dart 호출에 맞춤)
+  // 8. 회원 탈퇴 (myPage_tab.dart 호출에 맞춤)
   static Future<Map<String, dynamic>> withdraw({required String reason}) async {
     try {
       final token = AuthSession.token;
@@ -327,7 +366,7 @@ class AuthService {
     }
   }
 
-  // 8. 유저 신고 (myPage_tab.dart 호출 파라미터 4개에 맞춤)
+  // 9. 유저 신고 (myPage_tab.dart 호출 파라미터 4개에 맞춤)
   static Future<Map<String, dynamic>> reportUser({
     required String targetId,
     required String tripId,
@@ -383,7 +422,7 @@ class AuthService {
     }
   }
 
-  // 9. 이용 내역 데이터 반환 (List<Map> 타입으로 에러 방지)
+  // 10. 이용 내역 데이터 반환 (List<Map> 타입으로 에러 방지)
   static Future<List<Map<String, dynamic>>> getTripHistory() async {
     try {
       final token = AuthSession.token;
@@ -421,7 +460,7 @@ class AuthService {
     }
   }
 
-  // 10. 매너 로그 데이터 반환
+  // 11. 매너 로그 데이터 반환
   static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
     try {
       final token = AuthSession.token;
@@ -459,7 +498,7 @@ class AuthService {
     }
   }
 
-  // 11. 신고 가능한 여정 및 동승자 목록 반환
+  // 12. 신고 가능한 여정 및 동승자 목록 반환
   static Future<List<Map<String, dynamic>>> getRecentCompanions() async {
     try {
       final token = AuthSession.token;

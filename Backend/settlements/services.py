@@ -19,7 +19,9 @@ from decimal import Decimal
 from chat.models import ChatRoom, ChatMessage
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from accounts.utils import send_fcm_notification
 
+MANUAL_SETTLEMENT_GUIDE_MESSAGE = "정산 정보를 확인할 수 없습니다. 결제 금액을 직접 작성해주세요."
 
 def _validate_trip_leader(*, trip, user):
     if trip.leader_user_id != user.id:
@@ -163,6 +165,46 @@ def extract_ride_time_from_text(raw_text: str, *, base_depart_time=None):
 
     return None
 
+def has_taxi_receipt_context(raw_text: str) -> bool:
+    """
+    OCR 결과가 택시 영수증/이용내역으로 볼 수 있는지 최소한의 문맥을 확인한다.
+    상관없는 이미지의 숫자를 결제 금액으로 오인하지 않기 위한 방어 로직이다.
+    """
+    if not raw_text:
+        return False
+
+    normalized = re.sub(r"\s+", "", raw_text).lower()
+
+    taxi_keywords = [
+        "택시",
+        "taxi",
+        "카카오t",
+        "카카오택시",
+        "kakaot",
+        "운행",
+        "승차",
+        "하차",
+        "출발",
+        "도착",
+        "차량번호",
+    ]
+
+    payment_keywords = [
+        "결제",
+        "금액",
+        "요금",
+        "운임",
+        "합계",
+        "총액",
+        "카드",
+        "영수증",
+        "이용내역",
+    ]
+
+    has_taxi_keyword = any(keyword in normalized for keyword in taxi_keywords)
+    has_payment_keyword = any(keyword in normalized for keyword in payment_keywords)
+
+    return has_taxi_keyword and has_payment_keyword
 
 def run_ocr_for_receipt(receipt: Receipt) -> str:
     """
@@ -276,6 +318,48 @@ def analyze_receipt_ocr(*, receipt: Receipt, actor):
     receipt.ocr_raw_text = raw_text
     receipt.extracted_total_amount = extracted_amount
     receipt.extracted_ride_time = extracted_ride_time
+
+    if not has_taxi_receipt_context(raw_text):
+        receipt.extracted_total_amount = None
+        receipt.ocr_status = "NEEDS_REVIEW"
+        receipt.save(
+            update_fields=[
+                "ocr_raw_text",
+                "extracted_total_amount",
+                "extracted_ride_time",
+                "ocr_status",
+                "updated_at",
+            ]
+        )
+        raise ValidationError(MANUAL_SETTLEMENT_GUIDE_MESSAGE)
+
+    if not extracted_ride_time:
+        receipt.extracted_total_amount = None
+        receipt.ocr_status = "NEEDS_REVIEW"
+        receipt.save(
+            update_fields=[
+                "ocr_raw_text",
+                "extracted_total_amount",
+                "extracted_ride_time",
+                "ocr_status",
+                "updated_at",
+            ]
+        )
+        raise ValidationError(MANUAL_SETTLEMENT_GUIDE_MESSAGE)
+
+    if extracted_amount is None:
+        receipt.extracted_total_amount = None
+        receipt.ocr_status = "NEEDS_REVIEW"
+        receipt.save(
+            update_fields=[
+                "ocr_raw_text",
+                "extracted_total_amount",
+                "extracted_ride_time",
+                "ocr_status",
+                "updated_at",
+            ]
+        )
+        raise ValidationError(MANUAL_SETTLEMENT_GUIDE_MESSAGE)
 
     if extracted_ride_time:
         time_diff_seconds = abs((extracted_ride_time - trip.depart_time).total_seconds())
@@ -686,12 +770,33 @@ def complete_trip_settlement(*, trip, user):
                         "type": "chat_room_updated",
                         "room_id": chat_room.id,
                         "last_message": "정산이 완료되었습니다.",
-                        "message_type": "SYSTEM",
+                        "message_type": "settlement_completed",
                         "sender": user.username,
                         "sender_user_id": user.id,
                         "sent_at": system_message.sent_at.isoformat(),
                     },
                 )
+
+            target_users = [
+                participant.user
+                for participant in participants
+                if participant.user_id in user_ids
+            ]
+
+            def send_settlement_completed_push():
+                for target_user in target_users:
+                    send_fcm_notification(
+                        target_user,
+                        title="정산 완료",
+                        body="모든 인원의 정산이 완료되었습니다. 채팅방에서 확인해 주세요.",
+                        data={
+                            "type": "settlement_completed",
+                            "room_id": str(chat_room.id),
+                            "trip_id": str(trip.id),
+                        },
+                    )
+
+            transaction.on_commit(send_settlement_completed_push)
 
     return {
         "pinned_notice": notice,

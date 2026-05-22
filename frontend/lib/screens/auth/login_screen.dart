@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
 import 'package:taximate/service/auth_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 
 class LoginScreen extends StatefulWidget {
@@ -70,6 +72,36 @@ class _LoginScreenState extends State<LoginScreen> {
         newToken: token,
         newUsername: username,
       );
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final pushAlarmEnabled = prefs.getBool('push_alarm_enabled') ?? true;
+
+        if (pushAlarmEnabled) {
+          final settings = await FirebaseMessaging.instance.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+
+          final isAuthorized =
+              settings.authorizationStatus == AuthorizationStatus.authorized ||
+              settings.authorizationStatus == AuthorizationStatus.provisional;
+
+          if (isAuthorized) {
+            final fcmToken = await FirebaseMessaging.instance.getToken();
+
+            if (fcmToken != null && fcmToken.isNotEmpty) {
+              await AuthService.updateFcmToken(
+                token: token,
+                fcmToken: fcmToken,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('FCM 토큰 등록 실패: $e');
+      }
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, AppRoutes.main);

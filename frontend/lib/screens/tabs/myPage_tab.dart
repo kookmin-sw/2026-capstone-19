@@ -536,6 +536,107 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _pushAlarm = true;
+  bool _isUpdatingPushAlarm = false;
+
+  static const String _pushAlarmPrefsKey = 'push_alarm_enabled';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPushAlarmSetting();
+  }
+
+  Future<void> _loadPushAlarmSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedValue = prefs.getBool(_pushAlarmPrefsKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      _pushAlarm = savedValue ?? true;
+    });
+  }
+
+  Future<void> _handlePushAlarmChanged(bool value) async {
+    if (_isUpdatingPushAlarm) return;
+
+    final previousValue = _pushAlarm;
+
+    setState(() {
+      _pushAlarm = value;
+      _isUpdatingPushAlarm = true;
+    });
+
+    try {
+      final token = AuthSession.token ?? '';
+
+      if (token.isEmpty) {
+        throw Exception('로그인이 필요합니다.');
+      }
+
+      String? fcmToken;
+
+      if (value) {
+        final settings = await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+
+        final isAuthorized =
+            settings.authorizationStatus == AuthorizationStatus.authorized ||
+            settings.authorizationStatus == AuthorizationStatus.provisional;
+
+        if (!isAuthorized) {
+          throw Exception('기기 알림 권한이 허용되지 않았습니다.');
+        }
+
+        fcmToken = await FirebaseMessaging.instance.getToken();
+
+        if (fcmToken == null || fcmToken.isEmpty) {
+          throw Exception('FCM 토큰을 가져오지 못했습니다.');
+        }
+      }
+
+      final result = await AuthService.updateFcmToken(
+        token: token,
+        fcmToken: value ? fcmToken : null,
+      );
+
+      if (result['success'] != true) {
+        throw Exception(result['message'] ?? '푸시 알림 설정 변경에 실패했습니다.');
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_pushAlarmPrefsKey, value);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value ? '푸시 알림을 켰습니다.' : '푸시 알림을 껐습니다.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _pushAlarm = previousValue;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('푸시 알림 설정 변경 실패: $e'),
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _isUpdatingPushAlarm = false;
+      });
+    }
+  }
 
   static const String _privacyPolicyUrl =
       'https://www.notion.so/TaxiMate-360fb68f0d8980dd9ecde56f7e673f85?source=copy_link';
@@ -556,7 +657,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             '푸쉬 알림 동의',
             '채팅, 참여, 정산 등 서비스 알림 수신',
             _pushAlarm,
-            (v) => setState(() => _pushAlarm = v),
+            (v) {
+              _handlePushAlarmChanged(v);
+            },
           ),
           _sectionTitle('📄 약관 및 정책'),
           _navTile(

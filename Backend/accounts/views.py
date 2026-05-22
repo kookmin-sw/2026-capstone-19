@@ -595,18 +595,18 @@ class UpdateFCMTokenView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        fcm_token = request.data.get('fcm_token')
-        if not fcm_token:
-            return Response(
-                {'success': False, 'message': 'FCM 토큰이 없습니다.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        fcm_token = request.data.get('fcm_token', None)
 
         user = request.user
-        user.fcm_token = fcm_token
-        user.save()
+        user.fcm_token = fcm_token or None
+        user.save(update_fields=['fcm_token', 'updated_at'])
+
+        if user.fcm_token:
+            message = 'FCM 토큰이 성공적으로 업데이트되었습니다.'
+        else:
+            message = 'FCM 토큰이 삭제되었습니다.'
 
         return Response({
             'success': True,
-            'message': 'FCM 토큰이 성공적으로 업데이트되었습니다.'
+            'message': message
         }, status=status.HTTP_200_OK)

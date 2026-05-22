@@ -14,6 +14,7 @@ import '../../config/app_config.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../../service/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -160,6 +161,7 @@ class SettlementMessage {
   String get totalAmountText => '${_formatWon(totalAmount)}원';
   String get shareAmountText => '${_formatWon(shareAmount)}원';
   bool get isCanceled => status.toUpperCase() == 'CANCELED';
+  bool get isCompleted => status.toUpperCase() == 'CONFIRMED';
 
   static String _formatWon(int value) {
     return value.toString().replaceAllMapped(
@@ -279,7 +281,7 @@ class _MessageTabState extends State<MessageTab> {
     _notificationChannel = WebSocketChannel.connect(wsUrl);
 
     _notificationChannel!.stream.listen(
-      (data) {
+      (data) async {
         final decodedRaw = jsonDecode(data);
 
         if (decodedRaw is! Map) {
@@ -322,11 +324,16 @@ class _MessageTabState extends State<MessageTab> {
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
 
           if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
+            final prefs = await SharedPreferences.getInstance();
+            final pushAlarmEnabled = prefs.getBool('push_alarm_enabled') ?? true;
 
-            NotificationService.showOngoingRide(
-              title: '💬 $sender',
-              body: lastMsg,
-            );
+            if (pushAlarmEnabled) {
+              NotificationService.showOngoingRide(
+                title: '💬 $sender',
+                body: lastMsg,
+              );
+            }
+
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });
@@ -1312,7 +1319,8 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
   Widget _buildSettlementRequestCard(SettlementMessage settlement) {
     final isCanceled = settlement.isCanceled;
     final isLeader = widget.room.isLeader;
-    final isCompleted = _pinnedNotice.contains('정산이 완료되었습니다');
+    final isCompleted =
+        settlement.isCompleted || _pinnedNotice.contains('정산이 완료되었습니다');
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2495,8 +2503,12 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
       } catch (e) {
         final errorText = e.toString();
 
-        if (!errorText.contains('수기 정산을 이용해주세요') &&
-            !errorText.contains('영수증 이용 시간이 모집 출발 시간과')) {
+        final shouldUseManualSettlement =
+            errorText.contains('수기 정산을 이용해주세요') ||
+            errorText.contains('영수증 이용 시간이 모집 출발 시간과') ||
+            errorText.contains('정산 정보를 확인할 수 없습니다');
+
+        if (!shouldUseManualSettlement) {
           rethrow;
         }
 
@@ -2504,7 +2516,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('영수증 시간이 모집 출발 시간과 차이가 큽니다. 수기 정산으로 진행합니다.'),
+            content: Text('정산 정보를 확인할 수 없습니다. 결제 금액을 직접 작성해주세요'),
           ),
         );
 

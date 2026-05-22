@@ -69,10 +69,15 @@ class NotificationService {
     final String? roomIdStr = message.data['room_id'];
     final int? roomId = int.tryParse(roomIdStr ?? '');
     final String? type = message.data['type'];
-
+    final String normalizedType = type?.toLowerCase() ?? '';
 
     if (type == 'TRIP_JOIN' || type == 'TRIP_LEAVE' || type == 'TRIP_DELETED') {
       TripService.notifyTripsChanged();
+    }
+
+    if (normalizedType == 'settlement_completed') {
+      TripService.notifyTripsChanged();
+      TripService.notifyChatRoomsChanged();
     }
     // 💡 핵심: 지금 메시지가 온 채팅방을 내가 켜놓고 보고 있다면? -> 알림 안 띄움!
     if (roomId != null && roomId == currentActiveRoomId) {
