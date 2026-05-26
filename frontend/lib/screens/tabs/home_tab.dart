@@ -97,8 +97,22 @@ class _HomeTabState extends State<HomeTab> {
     if (token.isEmpty) return;
 
     final trips = await TripService.getTrips(token: token);
+    final now = DateTime.now(); // 👈 [추가] 현재 기기 시각 기준점 생성
 
-    final serverPins = trips.map<RidePin>((trip) {
+    // 💡 [변경] 전체 데이터 중 '출발 시각이 현재 기준 3시간 이내'인 것만 먼저 거릅니다.
+    final serverPins = trips.where((trip) {
+      if (trip['depart_time'] == null) return false;
+
+      // 서버의 UTC 시간을 내 기기 기준 로컬 시간(KST)으로 변환
+      final departTime = DateTime.parse(trip['depart_time']).toLocal();
+
+      // 두 시간의 차이 계산 (출발시간 - 현재시간)
+      final difference = departTime.difference(now);
+
+      // 💡 조건: 이미 지난 버린 시간(음수)이 아니고, 현재로부터 180분(3시간) 이내인 것만 true
+      return difference.inMinutes >= 0 && difference.inMinutes <= 180;
+
+    }).map<RidePin>((trip) {
       final departTimeText = (trip['depart_time'] ?? '').toString();
       final parsedTime = DateTime.tryParse(departTimeText)?.toLocal();
 
@@ -153,7 +167,6 @@ class _HomeTabState extends State<HomeTab> {
       await _refreshMapMarkers();
     }
   }
-
   // 생명주기 관리
   @override
   void initState() {
