@@ -1299,24 +1299,57 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
       ],
     ),
   );
-
+// 🛠️ 수정 위치: _buildWaitingList 메서드를 통째로 교체
   Widget _buildWaitingList() {
     final pins = _state.waitingPins;
-    if (pins.isEmpty) return _emptyState(icon: Icons.bookmark_border_outlined, title: '참여 신청한 팀이 없어요', sub: '홈에서 신청해보세요!');
     return RefreshIndicator(
       onRefresh: _state.fetchActiveRides,
-      child: ListView.builder(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), itemCount: pins.length, itemBuilder: (_, i) => GestureDetector(onTap: () => setState(() => _selectedCardId = _selectedCardId == pins[i].id.toString() ? null : pins[i].id.toString()), child: _buildWaitingCard(pins[i]))),
+      color: AppColors.primary,
+      child: pins.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(), // 👈 데이터가 없어도 무조건 스크롤 허용
+              children: [
+                SizedBox(height: MediaQuery.of(context).size.height * 0.2), // 중앙 정렬용 여백
+                _emptyState(icon: Icons.bookmark_border_outlined, title: '참여 신청한 팀이 없어요', sub: '홈에서 신청해보세요!'),
+              ],
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              itemCount: pins.length,
+              itemBuilder: (_, i) => GestureDetector(
+                onTap: () => setState(() => _selectedCardId = _selectedCardId == pins[i].id.toString() ? null : pins[i].id.toString()),
+                child: _buildWaitingCard(pins[i]),
+              ),
+            ),
     );
   }
 
-  Widget _buildMyPinList() {
-    final pins = _state.myPins;
-    if (pins.isEmpty) return _emptyState(icon: Icons.location_on_outlined, title: '생성한 핀이 없어요', sub: '매칭 탭에서 새 핀을 만들어보세요!');
-    return RefreshIndicator(
-      onRefresh: _state.fetchActiveRides,
-      child: ListView.builder(padding: const EdgeInsets.fromLTRB(16, 16, 16, 24), itemCount: pins.length, itemBuilder: (_, i) => GestureDetector(onTap: () => setState(() => _selectedCardId = _selectedCardId == pins[i].id.toString() ? null : pins[i].id.toString()), child: _buildMyPinCard(pins[i]))),
-    );
-  }
+ // 🛠️ 수정 위치: _buildMyPinList 메서드를 통째로 교체
+   Widget _buildMyPinList() {
+     final pins = _state.myPins;
+     return RefreshIndicator(
+       onRefresh: _state.fetchActiveRides,
+       color: AppColors.primary,
+       child: pins.isEmpty
+           ? ListView(
+               physics: const AlwaysScrollableScrollPhysics(), // 👈 데이터가 없어도 무조건 스크롤 허용
+               children: [
+                 SizedBox(height: MediaQuery.of(context).size.height * 0.2), // 중앙 정렬용 여백
+                 _emptyState(icon: Icons.location_on_outlined, title: '생성한 핀이 없어요', sub: '매칭 탭에서 새 핀을 만들어보세요!'),
+               ],
+             )
+           : ListView.builder(
+               physics: const AlwaysScrollableScrollPhysics(),
+               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+               itemCount: pins.length,
+               itemBuilder: (_, i) => GestureDetector(
+                 onTap: () => setState(() => _selectedCardId = _selectedCardId == pins[i].id.toString() ? null : pins[i].id.toString()),
+                 child: _buildMyPinCard(pins[i]),
+               ),
+             ),
+     );
+   }
 
   Widget _buildWaitingCard(ActiveRidePin pin) {
     final isSelected = _selectedCardId == pin.id.toString();
