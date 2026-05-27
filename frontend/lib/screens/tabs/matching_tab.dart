@@ -69,16 +69,32 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
     super.dispose();
   }
 
-  // 서버에서 핀 목록 가져오기
+// 서버에서 핀 목록 가져오기
   Future<void> _fetchTrips() async {
     if (!mounted) return;
     setState(() => _isFetching = true);
 
+    // 1. 서버에서 전체 핀 데이터를 긁어옵니다.
     final List<dynamic> data = await TripService.getTrips(token: AuthSession.token ?? '');
 
     if (mounted) {
+      final now = DateTime.now(); // 👈 [추가] 현재 기기 시각 기준점 생성
+
       setState(() {
-        _serverPins = data.map((item) {
+        // 2. 전체 데이터 중 '출발 시각이 현재 기준 3시간 이내'인 것만 filter(where)합니다.
+        _serverPins = data.where((item) {
+          if (item['depart_time'] == null) return false;
+
+          // 서버의 시간을 내 기기 기준 로컬 시간(KST)으로 변환
+          final departTime = DateTime.parse(item['depart_time']).toLocal();
+
+          // 두 시간의 차이 계산 (출발시간 - 현재시간)
+          final difference = departTime.difference(now);
+
+          // 💡 조건: 이미 지난 버린 시간(음수)이 아니고, 현재로부터 180분(3시간) 이내인 것만 true
+          return difference.inMinutes >= 0 && difference.inMinutes <= 180;
+
+        }).map((item) {
         final List<dynamic> rawSeats = item['taken_seats'] ?? [];
         final List<String> takenSeats = rawSeats.map((s) => s.toString()).toList();
         return home.RidePin(
@@ -638,9 +654,8 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
 
-      // 채팅방 생성 후 이용 중 탭이 다시 조회되도록 (createTrip만으로는 타이밍이 앞섬)
-      TripService.notifyTripsChanged();
-      globalActiveRideState.fetchActiveRides();
+
+
 
       setState(() => _pinCreated = true);
 
